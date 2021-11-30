@@ -1,0 +1,8 @@
+# label:color_rgb:parts:actions
+background:0,0,0::
+Abnormal Spikelet:167,196,62::
+Floret:184,61,245::
+Full Spikelet:51,221,255::
+Rachis:52,209,183::
+Shed Spikelet:250,50,83::
+Stem Tip:115,51,128::

@@ -1,0 +1,3 @@
+Ideas
+
+Use centroids of detected contours (spikelets) to analyze spatial properties amang them. For example, the average, min, max, median, distance (euclidean) between them. 
