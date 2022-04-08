@@ -33,7 +33,7 @@ import pathlib
 from skimage import measure, segmentation, color, filters, morphology, color, feature, io, feature, util, morphology, exposure, img_as_float
 from skimage.morphology import skeletonize, thin
 from skimage.measure import label, regionprops, perimeter, find_contours
-from skimage.future import graph
+# from skimage.future import graph
 from skimage.segmentation import watershed, active_contour
 from skimage.feature import peak_local_max
 from skimage.filters import meijering, sato, frangi, hessian, gaussian
@@ -63,7 +63,7 @@ import random
 
 def ListImages(path, imgformat=".tif", recursive=False):
     Images = glob.glob(path + '/*' + imgformat, recursive=True)    
-    return Images
+    return sorted(Images)
 
 # Example:
 # path = r'./Images/TEST'
@@ -82,7 +82,7 @@ def RemoveBackground(img, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out
     
     # Read image
     if isinstance(img, str) == True:
-        img0 = plt.imread(img)
+        img0 = io.imread(img)
     else: 
         img0 = img
     
@@ -647,7 +647,7 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
     # Label + regionprops
     labeled_contours, num_contours = label(labeled, return_num = True)
     props_contours = regionprops(labeled_contours)
-#     plt.imshow(labeled_contours)
+#     io.imshow(labeled_contours)
 
     # # Create column with image name
     Image_Name = ImagePath.split('\\')[-1]
@@ -748,25 +748,29 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
     # List for angles
     Slopes = []
     
-    contours = C    
+    # contours = C    
     counter = 0
-    
-    for c in contours:
-        # c = contours[0]
-        counter = counter+1
-        # print("working on contour ", counter)
 
-        ellipse = cv2.fitEllipse(c)
+    for c in C:
+        
+        if len(c)<5:
+            Slope = np.nan
+        else:
+            # c = contours[0]
+            counter = counter+1
+            # print("working on contour ", counter)
 
-        # Fit a line 
-        rows,cols = cropped_rgb.shape[:2]
-        [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
-        lefty = int((-x*vy/vx) + y)
-        righty = int(((cols-x)*vy/vx)+y)
+            ellipse = cv2.fitEllipse(c)
 
-        rise = (0,lefty)[1] - (cols-1,righty)[1]
-        run = cols
-        Slope = rise/run
+            # Fit a line 
+            rows,cols = cropped_rgb.shape[:2]
+            [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
+            lefty = int((-x*vy/vx) + y)
+            righty = int(((cols-x)*vy/vx)+y)
+
+            rise = (0,lefty)[1] - (cols-1,righty)[1]
+            run = cols
+            Slope = rise/run
         Slopes.append(Slope)
     
     # Add slopes to data frame

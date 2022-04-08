@@ -64,7 +64,7 @@ from scipy import ndimage
 
 # from fil_finder import FilFinder2D
 
-import astropy.units as u
+# import astropy.units as u
 
 # from skan import Skeleton, summarize
 
