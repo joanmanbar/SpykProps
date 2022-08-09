@@ -4,7 +4,12 @@ CSSA/
 Testing/Excluded/
 Garett_Joan/
 Training/
+Models/
+CVATLabeling/
 GIFS/
 Output/
 
 # Code
+
+# Files
+*.gsheet

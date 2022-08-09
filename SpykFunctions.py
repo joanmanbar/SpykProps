@@ -52,6 +52,7 @@ import seaborn as sns
 import imutils
 import imageio
 import random
+from datetime import datetime, date
 
 
 
@@ -62,7 +63,7 @@ import random
 
 
 def ListImages(path, imgformat=".tif", recursive=False):
-    Images = glob.glob(path + '/*' + imgformat, recursive=True)    
+    Images = glob.glob(path + '/*' + imgformat, recursive=True)
     return sorted(Images)
 
 # Example:
@@ -78,37 +79,40 @@ def ListImages(path, imgformat=".tif", recursive=False):
 
 
 
-def RemoveBackground(img, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True, hsv_out=True, bw_out=True):
-    
+def RemoveBackground(img, Crop=True, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True, hsv_out=True, bw_out=True):
+
     # Read image
     if isinstance(img, str) == True:
         img0 = io.imread(img)
-    else: 
+    else:
         img0 = img
-    
+
     # Crop images. They were all taken with the same scanner
-    img1 = img0[44:6940, 25:4970, :]
-    
+    if Crop==True:
+        img1 = img0[44:6940, 25:4970, :]
+    else:
+        img1 = img0
+
      # Convert to gray
     gray0 = img1 @ [0.2126, 0.7152, 0.0722]
-    
+
     # Set image threshold
     T = filters.threshold_otsu(gray0)
 #     print(T)
     T = T*OtsuScaling
 #     print(T)
-    
+
     # Segment gray image
     bw0 = gray0 > T
-    
+
     # Remove small objects
     n_pixels = gray0.shape[0] * gray0.shape[1]
     minimum_size = n_pixels/10000
     bw1 = morphology.remove_small_objects(bw0, min_size=np.floor(minimum_size))
-    
+
     ImagesOut = []
 #     len(ImagesOut)
-    
+
     if rgb_out==True:
         # Apply mask to RGB
         rgb = np.where(bw1[..., None], img1, 0)
@@ -128,7 +132,7 @@ def RemoveBackground(img, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out
 #         bw0 = gray > 0
 #         bw = morphology.remove_small_objects(bw0, min_size=1.5e-05 * gray.shape[0] * gray.shape[1])
         ImagesOut.append(bw1)
-    
+
     return ImagesOut
 
 # Usage:
@@ -150,26 +154,30 @@ def RemoveBackground(img, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out
 
 # Enumerate spikes
 def EnumerateSpkCV(bw, rgb, TextSize=5, TROE2020=False, Plot=True, PlotOut=False):
-    
+
     nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(np.uint8(bw), connectivity=8)
     img = rgb.copy()
-    
+
+    # ignore the background (centroid 0)
+    centroids = centroids[1:]
+
     if TROE2020==True:
         counter=-1
     else:
         counter=0
-        
+
     for c in centroids:
 #         print(c)
         cx = round(c[0])
         cy = round(c[1])
         img = cv2.circle(img, (cx, cy), 10, (255, 0, 0), -1)
-        img = cv2.putText(img, str(counter), (cx - 25, cy - 25),cv2.FONT_HERSHEY_SIMPLEX, TextSize, (255, 0, 0), 15)
+        img = cv2.putText(img, str(counter), (cx - 25, cy - 25),cv2.FONT_HERSHEY_SIMPLEX,
+                          TextSize, (255, 0, 0), 5)
         counter = counter+1
-    
+
     if Plot==True:
         plt.imshow(img)
-    
+
     if PlotOut==True:
         return img
 
@@ -186,55 +194,64 @@ def EnumerateSpkCV(bw, rgb, TextSize=5, TROE2020=False, Plot=True, PlotOut=False
 
 
 
-def spk_length(cropped_spk, method='skelblur', Overlay=True, PlotCH=False):
-    
-    if method=='skelblur':
-        # Severly blur the image
-        blur = cv2.blur(np.float32(cropped_spk),(100,100))
-        # Threshold the blur
-        thrb = blur > 0.1
-        skeleton = skeletonize(thrb)
-#         plt.imshow(skeleton)
-        
-    if method=='chull':
-        # Blur the image with a 50x50 kernel
-        blur = cv2.blur(np.float32(cropped_spk),(50,50))
+def spk_length(cropped_spk,Overlay=True,Save=True,Filename=None):
 
-        # Get convex hull 
-        chull = convex_hull_image(blur>0)
+    cropped_spk = np.pad(cropped_spk, pad_width=[(100, 100),(100, 100)], mode='constant')
+    # plt.imshow(padded)
 
-        # Perform skeletonization
-        image = chull
-        skeleton = skeletonize(image)
-    #     plt.imshow(skeleton)
-    
+    # Severly blur the image
+    blur = cv2.blur(np.float32(cropped_spk),(100,100))
+    # Threshold the blur
+    thrb = blur > 0.1
+    skeleton = skeletonize(thrb)
+
     # Spike length
     SpkL = cv2.countNonZero(np.float32(skeleton))
-    
-    if PlotCH == True:
-        fig, axes = plt.subplots(1, 2, figsize=(8, 4))
-        ax = axes.ravel()
 
-        ax[0].set_title('Original picture')
-        ax[0].imshow(cropped_spk, cmap=plt.cm.gray)
-        ax[0].set_axis_off()
-
-        ax[1].set_title('Transformed picture')
-        ax[1].imshow(chull, cmap=plt.cm.gray)
-        ax[1].set_axis_off()
-
-        plt.tight_layout()
-        plt.show()
-    
     # Visualize overlay?
     if Overlay == True:
-        overlay_images = cv2.addWeighted(np.float32(cropped_spk),20,np.float32(skeleton),255,0)
-        plt.imshow(overlay_images, cmap='gray')
-    
+        # Dilate skeleton and color it
+        dil_skel = ndimage.binary_dilation(skeleton, np.ones((7,7)))
+        rgb_skel = np.zeros((dil_skel.shape[0],dil_skel.shape[1],3), dtype=np.uint8)
+        # Make True pixels red
+        rgb_skel[dil_skel]  = [255,0,0]
+        # Make False pixels blue
+        rgb_skel[~dil_skel] = [0,0,0]
+        # plt.imshow(rgb_skel)
+
+        img_color = np.dstack((cropped_spk, cropped_spk, cropped_spk))
+        img_hsv = color.rgb2hsv(img_color)
+        color_mask_hsv = color.rgb2hsv(rgb_skel)
+        img_hsv[..., 0] = color_mask_hsv[..., 0]
+        img_hsv[..., 1] = color_mask_hsv[..., 1]
+        img_masked = color.hsv2rgb(img_hsv)
+
+        plt.imshow(img_masked)
+
+    if Save==True and Filename!=None:
+        # Dilate skeleton and color it
+        dil_skel = ndimage.binary_dilation(skeleton, np.ones((7,7)))
+        rgb_skel = np.zeros((dil_skel.shape[0],dil_skel.shape[1],3), dtype=np.uint8)
+        # Make True pixels red
+        rgb_skel[dil_skel]  = [255,0,0]
+        # Make False pixels blue
+        rgb_skel[~dil_skel] = [0,0,0]
+        # plt.imshow(rgb_skel)
+
+        img_color = np.dstack((cropped_spk, cropped_spk, cropped_spk))
+        img_hsv = color.rgb2hsv(img_color)
+        color_mask_hsv = color.rgb2hsv(rgb_skel)
+        img_hsv[..., 0] = color_mask_hsv[..., 0]
+        img_hsv[..., 1] = color_mask_hsv[..., 1]
+        img_masked = color.hsv2rgb(img_hsv)
+        plt.imshow(img_masked)
+        plt.savefig(Filename)
+        plt.close()
+
     return SpkL
 
 # Example:
-# SL = spk_length(cropped_spk, method='skelblur', Overlay=True, PlotCH=False)
+# SL = spk_length(cropped_spk, Overlay=True, Save=False, Filename='testing_image.png')
 
 
 
@@ -245,20 +262,20 @@ def spk_length(cropped_spk, method='skelblur', Overlay=True, PlotCH=False):
 
 
 def PixelHist(bw, ColorSpace, channel = 0, spikes="All", nbins = 100):
-    
+
     labeled_spks, num_spikes = label(bw, return_num = True)
 #     plt.imshow(labeled_spks==0)
 
     if spikes=="All":
         labeled_spks = labeled_spks
     else:
-        for L in range(1,num_spikes+1):
+        for L in range(num_spikes):
 #             print(L)
             if not L in spikes:
 #                 print("Deleted label ", L)
                 labeled_spks=np.where(labeled_spks==L, 0, labeled_spks)
 #     plt.imshow(labeled_spks)
-    
+
     Props = regionprops(labeled_spks, intensity_image=ColorSpace[:,:,channel])
     Areas = [rp.area for rp in Props]
     Labels = [rp.label for rp in Props] #Delete 1 because label in image is +1 greater than ACTUAL label
@@ -266,20 +283,20 @@ def PixelHist(bw, ColorSpace, channel = 0, spikes="All", nbins = 100):
     Names = []
     Colors = sns.color_palette("husl", len(spikes))
     Colors2 = [list(i) for i in Colors] # list of lists
-    
-    
-    for indexed in range(len(Labels)):        
-        spk_data = Props[indexed].intensity_image 
+
+
+    for indexed in range(len(Labels)):
+        spk_data = Props[indexed].intensity_image
         spk_data = spk_data.ravel()
         NonZero = spk_data[spk_data != 0]
 
         Spikes_Data.append(NonZero)
         Names.append("Spike " + str(int(spikes[indexed])) + "\n" + "Area = "  + str(round(np.mean(NonZero))) + " px" + "\n" +
                      "Mean = "  + str(round(np.mean(NonZero), 1)))
-        Colors.append(list(np.random.choice(range(2), size=3)))
-    
+        # Colors.append(list(np.random.choice(range(2), size=3)))
+
     plt.hist(Spikes_Data, bins = nbins, color = Colors2, label = Names);
-    
+
     # Plot formatting
     plt.legend();
     plt.xlabel('Intensity Value');
@@ -287,6 +304,7 @@ def PixelHist(bw, ColorSpace, channel = 0, spikes="All", nbins = 100):
     plt.title('Distribution of None-Zero Pixel Values for Selected Given Channel and Spikes');
 
 # Example:
+# PixelHist(bw=bw0, ColorSpace=hsv0, channel = 2, spikes=[0,1,2], nbins = 25)
 # PixelHist(bw=bw0, ColorSpace=lab0, channel = 0, spikes=[1,2,26], nbins = 100)
 
 
@@ -298,8 +316,8 @@ def PixelHist(bw, ColorSpace, channel = 0, spikes="All", nbins = 100):
 
 
 def channel_percentiles(channel_props, Negatives = None):
-      
-    # Create empty lists to populate    
+
+    # Create empty lists to populate
     p25_pos_list = []
     p50_pos_list = []
     p75_pos_list = []
@@ -314,9 +332,9 @@ def channel_percentiles(channel_props, Negatives = None):
     sd_neg_list = []
     min_neg_list = []
     max_neg_list = []
-    
+
 #     channel_props[1].intensity_image
-    
+
 
     # channel_props = a_props
     for spk in range(len(channel_props)):
@@ -328,7 +346,7 @@ def channel_percentiles(channel_props, Negatives = None):
 
         positive_values = non_zero[non_zero > 0]
         if positive_values.size == 0:
-            positive_values = [0]        
+            positive_values = [0]
         p25_pos = np.nanpercentile(positive_values, 25)
         p25_pos_list.append(p25_pos)
         p50_pos = np.nanpercentile(positive_values, 50)
@@ -339,9 +357,11 @@ def channel_percentiles(channel_props, Negatives = None):
         mean_pos_list.append(mean_pos)
         sd_pos = np.std(positive_values)
         sd_pos_list.append(sd_pos)
-        min_pos = min(positive_values)
+        # min_pos = min(positive_values)
+        min_pos = np.nanpercentile(positive_values, 5)
         min_pos_list.append(min_pos)
-        max_pos = max(positive_values)
+        # max_pos = max(positive_values)
+        max_pos = np.nanpercentile(positive_values, 95)
         max_pos_list.append(max_pos)
 
         if Negatives == True:
@@ -359,16 +379,18 @@ def channel_percentiles(channel_props, Negatives = None):
             mean_neg_list.append(mean_neg)
             sd_neg = np.std(positive_values)
             sd_neg_list.append(sd_neg)
-            min_neg = min(negative_values)
+            # min_neg = min(negative_values)
+            min_neg = np.nanpercentile(negative_values, 5)
             min_neg_list.append(min_neg)
-            max_neg = max(negative_values)
+            # max_neg = max(negative_values)
+            max_neg = np.nanpercentile(negative_values, 95)
             max_neg_list.append(max_neg)
 
             Lists = [p25_pos_list, p50_pos_list, p75_pos_list, mean_pos_list, sd_pos_list, min_pos_list, max_pos_list, p25_neg_list, p50_neg_list, p75_neg_list, mean_neg_list, sd_neg_list, min_neg_list, max_neg_list]
         else:
             Lists = [p25_pos_list, p50_pos_list, p75_pos_list, mean_pos_list, sd_pos_list, min_pos_list, max_pos_list]
 
-        
+
         # if any(pixel < 0 for pixel in non_zero) == True:
         #     negative_values = non_zero[non_zero < 0]
         #     p25_neg = np.percentile(negative_values, 25)
@@ -405,7 +427,7 @@ def channel_percentiles(channel_props, Negatives = None):
 
 
 def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=False):
-    
+
     # Check if images or path were given
     if RemoveBG == True:
         # Remove background (path was given)
@@ -415,25 +437,25 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
         lab0 = I[2]
         hsv0 = I[3]
         bw0 = I[4]
-        
+
         Image_Name = ImagePath.split('\\')[-1]
 
-    else: 
+    else:
         # Images were given in a list as returned by RemoveBackground()
         rgb0 = I[0]
         gray0 = I[1]
         lab0 = I[2]
         hsv0 = I[3]
         bw0 = I[4]
-    
-    
+
+
     labeled_spks, num_spikes = label(bw0, return_num = True)
     props_spikes = regionprops(labeled_spks)
-    
+
     # Create column with image name
     Image_Name = ImagePath.split('\\')[-1]
     Image_Name = [Image_Name] * num_spikes
-    
+
     # Geometric properties
     Labels = [rp.label for rp in props_spikes]
     Areas = [rp.area for rp in props_spikes]
@@ -442,7 +464,7 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
     Orientations = [rp.orientation for rp in props_spikes]
     Perimeters = [rp.perimeter for rp in props_spikes]
     Eccentricities = [rp.eccentricity for rp in props_spikes]
-   
+
     # Spectral properties
     red_props = regionprops(labeled_spks, intensity_image=rgb0[:,:,0])
     green_props = regionprops(labeled_spks, intensity_image=rgb0[:,:,1])
@@ -453,7 +475,7 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
     H_props = regionprops(labeled_spks, intensity_image=hsv0[:,:,0])
     S_props = regionprops(labeled_spks, intensity_image=hsv0[:,:,1])
     V_props = regionprops(labeled_spks, intensity_image=hsv0[:,:,2])
-    
+
     red = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in red_props])
     green = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in green_props])
     blue = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in blue_props])
@@ -463,7 +485,7 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
     H = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in H_props])
     S = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in S_props])
     V = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in V_props])
-    
+
     Red_Perc = np.array(channel_percentiles(red_props, Negatives=False)).T
     Green_Perc = np.array(channel_percentiles(green_props, Negatives=False)).T
     Blue_Perc = np.array(channel_percentiles(blue_props, Negatives=False)).T
@@ -476,40 +498,40 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
 
     # Dataframe 1: for single obervation per spike
     Spikes_per_image = pd.DataFrame(
-    list(zip(Image_Name, Labels, Areas, MajorAxes, MinorAxes, Orientations, Eccentricities, Perimeters, 
-             red[:,0], red[:,1], red[:,2], green[:,0], green[:,1], green[:,2], blue[:,0], blue[:,1], blue[:,2], 
-             L[:,0], L[:,1], L[:,2], a[:,0], a[:,1], a[:,2], b[:,0], b[:,1], b[:,2], 
-             H[:,0], H[:,1], H[:,2], S[:,0], S[:,1], S[:,2], V[:,0], V[:,1], V[:,2], 
-             Red_Perc[:,0], Red_Perc[:,1], Red_Perc[:,2], Red_Perc[:,3], Red_Perc[:,4], Red_Perc[:,5], Red_Perc[:,6], 
-             Green_Perc[:,0], Green_Perc[:,1], Green_Perc[:,2], Green_Perc[:,3], Green_Perc[:,4], Green_Perc[:,5], Green_Perc[:,6], 
-             Blue_Perc[:,0], Blue_Perc[:,1], Blue_Perc[:,2], Blue_Perc[:,3], Blue_Perc[:,4], Blue_Perc[:,5], Blue_Perc[:,6], 
-             L_Perc[:,0], L_Perc[:,1], L_Perc[:,2], L_Perc[:,3], L_Perc[:,4], L_Perc[:,5], L_Perc[:,6], 
-             a_Perc[:,0], a_Perc[:,1], a_Perc[:,2], a_Perc[:,3], a_Perc[:,4], a_Perc[:,5], a_Perc[:,6], 
-             a_Perc[:,7], a_Perc[:,8], a_Perc[:,9], a_Perc[:,10], a_Perc[:,11], a_Perc[:,12], a_Perc[:,13], 
-             b_Perc[:,0], b_Perc[:,1], b_Perc[:,2], b_Perc[:,3], b_Perc[:,4], b_Perc[:,5], b_Perc[:,6], 
+    list(zip(Image_Name, Labels, Areas, MajorAxes, MinorAxes, Orientations, Eccentricities, Perimeters,
+             red[:,0], red[:,1], red[:,2], green[:,0], green[:,1], green[:,2], blue[:,0], blue[:,1], blue[:,2],
+             L[:,0], L[:,1], L[:,2], a[:,0], a[:,1], a[:,2], b[:,0], b[:,1], b[:,2],
+             H[:,0], H[:,1], H[:,2], S[:,0], S[:,1], S[:,2], V[:,0], V[:,1], V[:,2],
+             Red_Perc[:,0], Red_Perc[:,1], Red_Perc[:,2], Red_Perc[:,3], Red_Perc[:,4], Red_Perc[:,5], Red_Perc[:,6],
+             Green_Perc[:,0], Green_Perc[:,1], Green_Perc[:,2], Green_Perc[:,3], Green_Perc[:,4], Green_Perc[:,5], Green_Perc[:,6],
+             Blue_Perc[:,0], Blue_Perc[:,1], Blue_Perc[:,2], Blue_Perc[:,3], Blue_Perc[:,4], Blue_Perc[:,5], Blue_Perc[:,6],
+             L_Perc[:,0], L_Perc[:,1], L_Perc[:,2], L_Perc[:,3], L_Perc[:,4], L_Perc[:,5], L_Perc[:,6],
+             a_Perc[:,0], a_Perc[:,1], a_Perc[:,2], a_Perc[:,3], a_Perc[:,4], a_Perc[:,5], a_Perc[:,6],
+             a_Perc[:,7], a_Perc[:,8], a_Perc[:,9], a_Perc[:,10], a_Perc[:,11], a_Perc[:,12], a_Perc[:,13],
+             b_Perc[:,0], b_Perc[:,1], b_Perc[:,2], b_Perc[:,3], b_Perc[:,4], b_Perc[:,5], b_Perc[:,6],
              b_Perc[:,7], b_Perc[:,8], b_Perc[:,9], b_Perc[:,10], b_Perc[:,11], b_Perc[:,12], b_Perc[:,13],
              H_Perc[:,0], H_Perc[:,1], H_Perc[:,2], H_Perc[:,3], H_Perc[:,4], H_Perc[:,5], H_Perc[:,6],
              S_Perc[:,0], S_Perc[:,1], S_Perc[:,2], S_Perc[:,3], S_Perc[:,4], S_Perc[:,5], S_Perc[:,6],
-             V_Perc[:,0], V_Perc[:,1], V_Perc[:,2], V_Perc[:,3], V_Perc[:,4], V_Perc[:,5], V_Perc[:,6])), 
-    columns = ['Image_Name', 'Spike_Label', 'Area', 'MajorAxis', 'MinorAxes', 'Orientation', 'Eccentricity', 'Perimeter', 
-               'Red_mean', 'Red_min', 'Red_max', 'Green_mean', 'Green_min', 'Green_max', 'Blue_mean', 'Blue_min', 'Blue_max', 
+             V_Perc[:,0], V_Perc[:,1], V_Perc[:,2], V_Perc[:,3], V_Perc[:,4], V_Perc[:,5], V_Perc[:,6])),
+    columns = ['Image_Name', 'Spike_Label', 'Area', 'MajorAxis', 'MinorAxes', 'Orientation', 'Eccentricity', 'Perimeter',
+               'Red_mean', 'Red_min', 'Red_max', 'Green_mean', 'Green_min', 'Green_max', 'Blue_mean', 'Blue_min', 'Blue_max',
                'L_mean', 'L_min', 'L_max', 'a_mean', 'a_min', 'a_max', 'b_mean', 'b_min', 'b_max',
-               'H_mean', 'H_min', 'H_max', 'S_mean', 'S_min', 'S_max', 'V_mean', 'V_min', 'V_max', 
-               'Red_p25', 'Red_p50', 'Red_p75', 'Red_Mean', 'Red_sd', 'Red_Min', 'Red_Max', 
-               'Green_p25', 'Green_p50', 'Green_p75', 'Green_Mean', 'Green_sd', 'Green_Min', 'Green_Max', 
-               'Blue_p25', 'Blue_p50', 'Blue_p75', 'Blue_Mean', 'Blue_sd', 'Blue_Min', 'Blue_Max', 
-               'L_p25', 'L_p50', 'L_p75', 'L_Mean', 'L_sd', 'L_Min', 'L_Max', 
-               'a_p25_pos', 'a_p50_pos', 'a_p75_pos', 'a_Mean_pos', 'a_sd_pos', 'a_Min_pos', 'a_Max_pos', 
-               'a_p25_neg', 'a_p50_neg', 'a_p75_neg', 'a_Mean_neg', 'a_sd_neg', 'a_Min_neg', 'a_Max_neg', 
-               'b_p25_pos', 'b_p50_pos', 'b_p75_pos', 'b_Mean_pos', 'b_sd_pos', 'b_Min_pos', 'b_Max_pos', 
+               'H_mean', 'H_min', 'H_max', 'S_mean', 'S_min', 'S_max', 'V_mean', 'V_min', 'V_max',
+               'Red_p25', 'Red_p50', 'Red_p75', 'Red_Mean', 'Red_sd', 'Red_Min', 'Red_Max',
+               'Green_p25', 'Green_p50', 'Green_p75', 'Green_Mean', 'Green_sd', 'Green_Min', 'Green_Max',
+               'Blue_p25', 'Blue_p50', 'Blue_p75', 'Blue_Mean', 'Blue_sd', 'Blue_Min', 'Blue_Max',
+               'L_p25', 'L_p50', 'L_p75', 'L_Mean', 'L_sd', 'L_Min', 'L_Max',
+               'a_p25_pos', 'a_p50_pos', 'a_p75_pos', 'a_Mean_pos', 'a_sd_pos', 'a_Min_pos', 'a_Max_pos',
+               'a_p25_neg', 'a_p50_neg', 'a_p75_neg', 'a_Mean_neg', 'a_sd_neg', 'a_Min_neg', 'a_Max_neg',
+               'b_p25_pos', 'b_p50_pos', 'b_p75_pos', 'b_Mean_pos', 'b_sd_pos', 'b_Min_pos', 'b_Max_pos',
                'b_p25_neg', 'b_p50_neg', 'b_p75_neg', 'b_Mean_neg', 'b_sd_neg', 'b_Min_neg', 'b_Max_neg',
                'H_p25', 'H_p50', 'H_p75', 'H_Mean', 'H_sd', 'H_Min', 'H_Max',
                'S_p25', 'S_p50', 'S_p75', 'S_Mean', 'S_sd', 'S_Min', 'S_Max',
                'V_p25', 'V_p50', 'V_p75', 'V_Mean', 'V_sd', 'V_Min', 'V_Max'])
-    
+
     Spikes_per_image['Circularity'] = (4 * np.pi * Spikes_per_image['Area']) / (Spikes_per_image['Perimeter'] ** 2)
-    
-    # Remove envelope's data  
+
+    # Remove envelope's data
     if rm_envelope==True:
         return Spikes_per_image.iloc[1: , :]
     else:
@@ -527,16 +549,17 @@ def SpikesDF(I, ImagePath, RemoveBG=False, PrintSpkLabels=False, rm_envelope=Fal
 
 
 
-def SpkltThresh(cropped, ResizeFactor=30, thr2=0.8, MinSize=1000):   
-    
+def SpkltThresh(cropped, ResizeFactor=30, thr2=0.8, MinSize=1000, Save=False, Filename=None):
+
     # Check that it's a gray image
     if len(cropped.shape) > 2:
         # Convert to gray
         cropped_gray = color.rgb2gray(cropped)
     else:
         cropped_gray = cropped
-        
-   
+
+    # cropped_gray = np.pad(cropped_gray, pad_width=[(100, 100),(100, 100)], mode='constant')
+
     # Reduce image size
     im = Image.fromarray((cropped_gray*255).astype(np.uint8))
     (width, height) = (im.width // ResizeFactor, im.height // ResizeFactor)
@@ -559,33 +582,49 @@ def SpkltThresh(cropped, ResizeFactor=30, thr2=0.8, MinSize=1000):
     # Normalize
     blurred = cv2.normalize(blurred, None, alpha = 0, beta = 255, norm_type = cv2.NORM_MINMAX, dtype = cv2.CV_32F)
     blurred = blurred.astype(np.uint8)
-    
+
     if thr2 < 1 == True:
         thr2 = thr2*255
     else:
         thr2 = thr2
-    
+
     # Threshold at given %
     ret, thresh = cv2.threshold(blurred, thr2, 255, 0)
     thresh = np.uint8(thresh)
-    
+
     nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(thresh, connectivity=8)
-    sizes = stats[1:, -1]; nb_components = nb_components - 1    
-       
+    sizes = stats[1:, -1]; nb_components = nb_components - 1
+
     thresh2 = np.zeros((output.shape))
-    
+
     # Keep only objects with minimum size
     for i in range(0, nb_components):
         if sizes[i] >= MinSize:
             thresh2[output == i + 1] = 255
-    
+
 #     plt.imshow(thresh2)
     thresh2 = np.uint8(thresh2)
-    
+
+    kernel = morphology.disk(3)
+    eroded = cv2.erode(thresh2, kernel, iterations=2)
+    # plt.imshow(eroded, cmap='gray')
+
+    se = morphology.disk(10)
+    mask = ndimage.binary_opening(eroded, se)
+    # plt.imshow(mask, cmap='gray')
+
+    thresh2 = eroded
+
+
+    if Save==True and Filename!=None:
+        plt.imshow(thresh2)
+        plt.savefig(Filename)
+        plt.close()
+
     return thresh2
 
-# Example:
-# thresh2 = SpkltThresh(cropped=cropped_rgb, ResizeFactor=30, thr2=0.8, MinSize=1000)
+# # Example:
+# thresh2 = SpkltThresh(cropped=cropped_rgb, ResizeFactor=30, thr2=0.8, MinSize=1000, Save=True, Filename="testing.png")
 # plt.imshow(thresh2)
 
 
@@ -598,10 +637,10 @@ def SpkltThresh(cropped, ResizeFactor=30, thr2=0.8, MinSize=1000):
 
 # Spike's contours
 def LabelContours(cropped_rgb, thresh2, ResizeFactor=30, MinSize = 1000, plot=True, thr2=0.8):
-    
+
     # Copy iamge
     OutImage = cropped_rgb.copy()
-    
+
     if thresh2 is not None:
         thresh2 = thresh2
     else:
@@ -611,23 +650,23 @@ def LabelContours(cropped_rgb, thresh2, ResizeFactor=30, MinSize = 1000, plot=Tr
 #     # Threshold for contours
 #     thresh2 = SpkltThresh(cropped=cropped_rgb, ResizeFactor=30, thr2=thr2, MinSize=MinSize)
 #     plt.imshow(bw_cont)
-    
+
     # Enumerate objects
     # EnumerateSpkCV(thresh2, OutImage, TextSize=5, TROE2020=False)
-    
+
 #     contours = measure.find_contours(blurred,(0.8*255))
     contours, hierarchy = cv2.findContours(thresh2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 #     len(contours)
-    
+
     # Detected spikelets
     print("Detected spikeletes: ", len(contours))
-    
+
     if plot==True:
         img = OutImage.copy()
         # Plot all found contours
         plot_contours = cv2.drawContours(img, contours, -1, (0,255,0), 10)
         plt.imshow(plot_contours)
-    
+
     return contours
 
 # Example:
@@ -643,7 +682,7 @@ def LabelContours(cropped_rgb, thresh2, ResizeFactor=30, MinSize = 1000, plot=Tr
 
 
 def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize = 1000, rm_envelope=False):
-    
+
     # Label + regionprops
     labeled_contours, num_contours = label(labeled, return_num = True)
     props_contours = regionprops(labeled_contours)
@@ -672,7 +711,7 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
     H_props = regionprops(labeled_contours, intensity_image=cropped_hsv[:,:,0])
     S_props = regionprops(labeled_contours, intensity_image=cropped_hsv[:,:,1])
     V_props = regionprops(labeled_contours, intensity_image=cropped_hsv[:,:,2])
-    
+
     red = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in red_props])
     green = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in green_props])
     blue = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in blue_props])
@@ -682,7 +721,7 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
     H = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in H_props])
     S = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in S_props])
     V = np.array([[rp.mean_intensity,rp.min_intensity,rp.max_intensity] for rp in V_props])
-    
+
     Red_Perc = np.array(channel_percentiles(red_props, Negatives=False)).T
     Green_Perc = np.array(channel_percentiles(green_props, Negatives=False)).T
     Blue_Perc = np.array(channel_percentiles(blue_props, Negatives=False)).T
@@ -695,32 +734,32 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
 
     # Dataframe 1: for single obervation per spike
     Objects_per_image = pd.DataFrame(
-    list(zip(Image_Name, Labels, Areas, MajorAxes, MinorAxes, Orientations, Eccentricities, Perimeters, 
-             red[:,0], red[:,1], red[:,2], green[:,0], green[:,1], green[:,2], blue[:,0], blue[:,1], blue[:,2], 
-             L[:,0], L[:,1], L[:,2], a[:,0], a[:,1], a[:,2], b[:,0], b[:,1], b[:,2], 
-             H[:,0], H[:,1], H[:,2], S[:,0], S[:,1], S[:,2], V[:,0], V[:,1], V[:,2], 
-             Red_Perc[:,0], Red_Perc[:,1], Red_Perc[:,2], Red_Perc[:,3], Red_Perc[:,4], Red_Perc[:,5], Red_Perc[:,6], 
-             Green_Perc[:,0], Green_Perc[:,1], Green_Perc[:,2], Green_Perc[:,3], Green_Perc[:,4], Green_Perc[:,5], Green_Perc[:,6], 
-             Blue_Perc[:,0], Blue_Perc[:,1], Blue_Perc[:,2], Blue_Perc[:,3], Blue_Perc[:,4], Blue_Perc[:,5], Blue_Perc[:,6], 
-             L_Perc[:,0], L_Perc[:,1], L_Perc[:,2], L_Perc[:,3], L_Perc[:,4], L_Perc[:,5], L_Perc[:,6], 
-             a_Perc[:,0], a_Perc[:,1], a_Perc[:,2], a_Perc[:,3], a_Perc[:,4], a_Perc[:,5], a_Perc[:,6], 
-             a_Perc[:,7], a_Perc[:,8], a_Perc[:,9], a_Perc[:,10], a_Perc[:,11], a_Perc[:,12], a_Perc[:,13], 
-             b_Perc[:,0], b_Perc[:,1], b_Perc[:,2], b_Perc[:,3], b_Perc[:,4], b_Perc[:,5], b_Perc[:,6], 
+    list(zip(Image_Name, Labels, Areas, MajorAxes, MinorAxes, Orientations, Eccentricities, Perimeters,
+             red[:,0], red[:,1], red[:,2], green[:,0], green[:,1], green[:,2], blue[:,0], blue[:,1], blue[:,2],
+             L[:,0], L[:,1], L[:,2], a[:,0], a[:,1], a[:,2], b[:,0], b[:,1], b[:,2],
+             H[:,0], H[:,1], H[:,2], S[:,0], S[:,1], S[:,2], V[:,0], V[:,1], V[:,2],
+             Red_Perc[:,0], Red_Perc[:,1], Red_Perc[:,2], Red_Perc[:,3], Red_Perc[:,4], Red_Perc[:,5], Red_Perc[:,6],
+             Green_Perc[:,0], Green_Perc[:,1], Green_Perc[:,2], Green_Perc[:,3], Green_Perc[:,4], Green_Perc[:,5], Green_Perc[:,6],
+             Blue_Perc[:,0], Blue_Perc[:,1], Blue_Perc[:,2], Blue_Perc[:,3], Blue_Perc[:,4], Blue_Perc[:,5], Blue_Perc[:,6],
+             L_Perc[:,0], L_Perc[:,1], L_Perc[:,2], L_Perc[:,3], L_Perc[:,4], L_Perc[:,5], L_Perc[:,6],
+             a_Perc[:,0], a_Perc[:,1], a_Perc[:,2], a_Perc[:,3], a_Perc[:,4], a_Perc[:,5], a_Perc[:,6],
+             a_Perc[:,7], a_Perc[:,8], a_Perc[:,9], a_Perc[:,10], a_Perc[:,11], a_Perc[:,12], a_Perc[:,13],
+             b_Perc[:,0], b_Perc[:,1], b_Perc[:,2], b_Perc[:,3], b_Perc[:,4], b_Perc[:,5], b_Perc[:,6],
              b_Perc[:,7], b_Perc[:,8], b_Perc[:,9], b_Perc[:,10], b_Perc[:,11], b_Perc[:,12], b_Perc[:,13],
              H_Perc[:,0], H_Perc[:,1], H_Perc[:,2], H_Perc[:,3], H_Perc[:,4], H_Perc[:,5], H_Perc[:,6],
              S_Perc[:,0], S_Perc[:,1], S_Perc[:,2], S_Perc[:,3], S_Perc[:,4], S_Perc[:,5], S_Perc[:,6],
-             V_Perc[:,0], V_Perc[:,1], V_Perc[:,2], V_Perc[:,3], V_Perc[:,4], V_Perc[:,5], V_Perc[:,6])), 
-    columns = ['Image_Name', 'ObjLabel', 'Area', 'MajorAxis', 'MinorAxes', 'Orientation', 'Eccentricity', 'Perimeter', 
-               'Red_mean', 'Red_min', 'Red_max', 'Green_mean', 'Green_min', 'Green_max', 'Blue_mean', 'Blue_min', 'Blue_max', 
+             V_Perc[:,0], V_Perc[:,1], V_Perc[:,2], V_Perc[:,3], V_Perc[:,4], V_Perc[:,5], V_Perc[:,6])),
+    columns = ['Image_Name', 'ObjLabel', 'Area', 'MajorAxis', 'MinorAxes', 'Orientation', 'Eccentricity', 'Perimeter',
+               'Red_mean', 'Red_min', 'Red_max', 'Green_mean', 'Green_min', 'Green_max', 'Blue_mean', 'Blue_min', 'Blue_max',
                'L_mean', 'L_min', 'L_max', 'a_mean', 'a_min', 'a_max', 'b_mean', 'b_min', 'b_max',
-               'H_mean', 'H_min', 'H_max', 'S_mean', 'S_min', 'S_max', 'V_mean', 'V_min', 'V_max', 
-               'Red_p25', 'Red_p50', 'Red_p75', 'Red_Mean', 'Red_sd', 'Red_Min', 'Red_Max', 
-               'Green_p25', 'Green_p50', 'Green_p75', 'Green_Mean', 'Green_sd', 'Green_Min', 'Green_Max', 
-               'Blue_p25', 'Blue_p50', 'Blue_p75', 'Blue_Mean', 'Blue_sd', 'Blue_Min', 'Blue_Max', 
-               'L_p25', 'L_p50', 'L_p75', 'L_Mean', 'L_sd', 'L_Min', 'L_Max', 
-               'a_p25_pos', 'a_p50_pos', 'a_p75_pos', 'a_Mean_pos', 'a_sd_pos', 'a_Min_pos', 'a_Max_pos', 
-               'a_p25_neg', 'a_p50_neg', 'a_p75_neg', 'a_Mean_neg', 'a_sd_neg', 'a_Min_neg', 'a_Max_neg', 
-               'b_p25_pos', 'b_p50_pos', 'b_p75_pos', 'b_Mean_pos', 'b_sd_pos', 'b_Min_pos', 'b_Max_pos', 
+               'H_mean', 'H_min', 'H_max', 'S_mean', 'S_min', 'S_max', 'V_mean', 'V_min', 'V_max',
+               'Red_p25', 'Red_p50', 'Red_p75', 'Red_Mean', 'Red_sd', 'Red_Min', 'Red_Max',
+               'Green_p25', 'Green_p50', 'Green_p75', 'Green_Mean', 'Green_sd', 'Green_Min', 'Green_Max',
+               'Blue_p25', 'Blue_p50', 'Blue_p75', 'Blue_Mean', 'Blue_sd', 'Blue_Min', 'Blue_Max',
+               'L_p25', 'L_p50', 'L_p75', 'L_Mean', 'L_sd', 'L_Min', 'L_Max',
+               'a_p25_pos', 'a_p50_pos', 'a_p75_pos', 'a_Mean_pos', 'a_sd_pos', 'a_Min_pos', 'a_Max_pos',
+               'a_p25_neg', 'a_p50_neg', 'a_p75_neg', 'a_Mean_neg', 'a_sd_neg', 'a_Min_neg', 'a_Max_neg',
+               'b_p25_pos', 'b_p50_pos', 'b_p75_pos', 'b_Mean_pos', 'b_sd_pos', 'b_Min_pos', 'b_Max_pos',
                'b_p25_neg', 'b_p50_neg', 'b_p75_neg', 'b_Mean_neg', 'b_sd_neg', 'b_Min_neg', 'b_Max_neg',
                'H_p25', 'H_p50', 'H_p75', 'H_Mean', 'H_sd', 'H_Min', 'H_Max',
                'S_p25', 'S_p50', 'S_p75', 'S_Mean', 'S_sd', 'S_Min', 'S_Max',
@@ -728,7 +767,7 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
 
     Objects_per_image['Circularity'] = (4 * np.pi * Objects_per_image['Area']) / (Objects_per_image['Perimeter'] ** 2)
 
-    
+
     # Unique labels
     labels2 = np.unique(labeled_contours[labeled_contours > 0])
 
@@ -744,15 +783,15 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
             # len(contours)
             contours = np.squeeze(contours)
             C.append(contours)
-        
+
     # List for angles
     Slopes = []
-    
-    # contours = C    
+
+    # contours = C
     counter = 0
 
     for c in C:
-        
+
         if len(c)<5:
             Slope = np.nan
         else:
@@ -762,7 +801,7 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
 
             ellipse = cv2.fitEllipse(c)
 
-            # Fit a line 
+            # Fit a line
             rows,cols = cropped_rgb.shape[:2]
             [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
             lefty = int((-x*vy/vx) + y)
@@ -772,10 +811,13 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
             run = cols
             Slope = rise/run
         Slopes.append(Slope)
-    
+
     # Add slopes to data frame
     Objects_per_image['ObjAngle'] = Slopes
-    
+
+    # Fix ObjLabel index
+    Objects_per_image['ObjLabel'] = Objects_per_image['ObjLabel'] - 1
+
     # Remove first row, corresponding to spikes' envelope
     if rm_envelope==True:
         return Objects_per_image.iloc[1: , :]
@@ -798,40 +840,40 @@ def ObjProps(labeled, cropped_rgb, cropped_lab, cropped_hsv, ImagePath, MinSize 
 
 
 def EnhanceImage(InputImage, Color = None, Contrast = None, Sharp = None):
-    
+
     # Read image
     if isinstance(InputImage, str) == True:
         img = iio.imread(InputImage)
-    else: 
+    else:
         img = InputImage
-    
+
     # RGB enhancement
     img0 = Image.fromarray(img)
-    
+
     # Color seems to be good around 3.5
     img1 = ImageEnhance.Color(img0)
     if Color is not None:
         img1 = img1.enhance(Color)
     else:
         img1 = img0
-    
+
     # Contrast
     img2 = ImageEnhance.Contrast(img1)
     if Contrast is not None:
         img2 = img2.enhance(Contrast)
     else:
         img2 = img1
-    
+
     # Sharpness (Good ~20 or higher)
-    img3 = ImageEnhance.Sharpness(img2)    
+    img3 = ImageEnhance.Sharpness(img2)
     if Sharp is not None:
         img3 = img3.enhance(Sharp)
     else:
         img3 = img2
-    
+
     # Final image
     img3 = np.array(img3)
-    
+
     return img3
 
 # Example
@@ -846,10 +888,16 @@ def EnhanceImage(InputImage, Color = None, Contrast = None, Sharp = None):
 
 
 
-def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot=False, Plot=True):
-    
+def LabelSpklts(cropped_rgb, MinDist=50,labels_out=True,
+                n_spklt=True,ElliPlot=False,Plot=False,
+                TextSize=2,Save=False):
+
+    # padded_rgb = np.pad(cropped_rgb, pad_width=[(100, 100),(100, 100),(0, 0)], mode='constant')
+    padded_rgb = cropped_rgb
+
+
     # Rescale to 10% of original
-    rescaled_spk = rescale(cropped_rgb[...], 0.1, preserve_range=False, multichannel=True, anti_aliasing=True)
+    rescaled_spk = rescale(padded_rgb[...], 0.1, preserve_range=False, multichannel=True, anti_aliasing=True)
     # plt.imshow(rescaled_spk)
 
     # Erosion
@@ -864,7 +912,7 @@ def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot
 
     # Resize
     rescaled_spk2 = Image.fromarray((rescaled_spk * 255).astype(np.uint8))
-    rescaled_spk2 = rescaled_spk2.resize((cropped_rgb.shape[1],cropped_rgb.shape[0]))
+    rescaled_spk2 = rescaled_spk2.resize((padded_rgb.shape[1],padded_rgb.shape[0]))
     # plt.imshow(rescaled_spk2)
     # rescaled_spk2.size
     opening = np.asarray(rescaled_spk2)
@@ -875,7 +923,7 @@ def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot
     # plt.imshow(gray_spklts)
 
     # Binarize gray
-    bw_spklts = gray_spklts > 0
+    bw_spklts = gray_spklts > 50
     # plt.imshow(bw_spklts)
 
     # Get distances
@@ -889,11 +937,10 @@ def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot
     mask = np.zeros(distance.shape, dtype=bool)
     mask[tuple(coords.T)] = True
     markers, spikelets = ndi.label(mask)
-    
+
     # Watershed
     labels = watershed(-distance, markers, mask=bw_spklts)
-#     plt.imshow(labels)
-
+    #     plt.imshow(labels)
     labels2 = np.unique(labels[labels > 0])
 
     C = []
@@ -908,60 +955,80 @@ def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot
             C.append(contours)
 
 #         plt.imshow(d[2])
-    
+
     contours = C
 
-    if ElliPlot==True and Plot==False:
-        
-        OutImage = cropped_rgb.copy()
+    if Save==False and ElliPlot==False and Plot==True:
+        # Plot
+        plt.imshow(labels, cmap=plt.cm.nipy_spectral)
+        # Print number of spikelets detected
+        print('Detected spikelets = ', spikelets)
+
+    if ElliPlot==True and Plot==True:
+
+        Slopes = []
+
+        OutImage = padded_rgb.copy()
 
         # Plot all found contours
-        OutImage = cv2.drawContours(OutImage, contours, -1, (0,0,0), 10);
+        OutImage = cv2.drawContours(OutImage, contours, -1, (0,255,255), 2);
         # plt.imshow(OutImage)
 
-        for c in contours:
-            # Generate random colors
-            random_channels = (np.random.choice(range(256), size=3))
-            rr = int(random_channels[0])
-            rg = int(random_channels[1])
-            rb = int(random_channels[2])
-            
-            ellipse = cv2.fitEllipse(c)
-            OutImage = cv2.ellipse(OutImage,ellipse,(rr,rg,rb),10);
+        counter = 0
 
-            # Fit a line 
+        for c in contours:
+
+            # # Generate random colors
+            # random_channels = (np.random.choice(range(256), size=3))
+            # rr = int(random_channels[0])
+            # rg = int(random_channels[1])
+            # rb = int(random_channels[2])
+
+            ellipse = cv2.fitEllipse(c)
+            # OutImage = cv2.ellipse(OutImage,ellipse,(rr,rg,rb),5);
+            OutImage = cv2.ellipse(OutImage,ellipse,(255,255,255),2);
+
+            M = cv2.moments(c)
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+
+            OutImage = cv2.circle(OutImage, (cx, cy), 10, (255,0,0), -1)
+            OutImage = cv2.putText(OutImage, str(counter), (cx - 25, cy - 25),cv2.FONT_HERSHEY_SIMPLEX,
+                              TextSize, (255,0,0), 5)
+            counter = counter+1
+
+            # Fit a line
             rows,cols = OutImage.shape[:2]
             [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
             lefty = int((-x*vy/vx) + y)
             righty = int(((cols-x)*vy/vx)+y)
             # OutImage = cv2.line(OutImage,(cols-1,righty),(0,lefty),(rr,rg,rb),3);
-            
+
             # Slope from tope left, which is is the origin [0,0]
             rise = (0,lefty)[1] - (cols-1,righty)[1]
             run = cols
             Slope = rise/run
-            Slopes.append(Slope)            
-        
-        # Plot
-        plt.imshow(OutImage)
+            Slopes.append(Slope)
 
-    # Add slopes to data frame
-    # Props['Spklt_Angle'] = Slopes
+        Slopes = pd.DataFrame(Slopes, columns=['Angles'])
 
-    if Plot==True and ElliPlot==False:  
-        # Plot
-        plt.imshow(labels, cmap=plt.cm.nipy_spectral)
-        
-        # Print number of spikelets detected
-        print('Detected spikelets = ', spikelets)
-    
-    # Return labels
-    if labels_out==True and n_spklt==True:
+        if Save==True:
+            return labels, spikelets, Slopes, OutImage
+        else:
+            return OutImage
+
+    else:
         return labels, spikelets
 
-# Example:
-# spklts, n_spklts= LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot=True, Plot=False)
-# plt.imshow(spklts==2)
+
+
+
+# # Example:
+# spklts, n_spklts, Angles, OutImage = LabelSpklts(cropped_rgb, MinDist=50, labels_out=True,
+#                               n_spklt=True, ElliPlot=True, Plot=True, Save=True)
+# n_spklts
+# # plt.imshow(spklts==2)
+# # plt.imshow(OutImage)
 
 
 
@@ -971,78 +1038,46 @@ def LabelSpklts(cropped_rgb, MinDist=50, labels_out=True, n_spklt=True, ElliPlot
 
 
 
-def CountorProps(cropped_rgb, cropped_lab, cropped_hsv, thresh2, ImagePath, ResizeFactor=30, MinSize = 1000, thr2=0.8, plot=True, rm_envelope=False):
-    
-#     labels_cont = SpkContours(cropped_rgb, ResizeFactor=30, MinSize = 1000, thr2=0.8, plot=True)
-    
+def CountorProps(cropped_rgb, cropped_lab, cropped_hsv,
+                 thresh2, ImagePath, ResizeFactor=30,
+                 MinSize = 1000, thr2=0.8, Plot=False,
+                 Save=False):
+
     # Copy image
     OutImage = cropped_rgb.copy()
     # Get lab
     OutImageLab = color.rgb2lab(cropped_lab)
-    
+
     if thresh2 is not None:
         thresh2 = thresh2
     else:
         # Threshold for contours
         thresh2 = SpkltThresh(cropped=OutImage, ResizeFactor=ResizeFactor, thr2=thr2, MinSize=MinSize)
+        # Remove padding
+        thresh2 = thresh2[100:-100, 100:-100]
 
-    #     plt.imshow(thresh2)
-    
-    # Enumerate objects
-#     EnumerateSpkCV(thresh2, OutImage, TextSize=3, TROE2020=False)
-    
-#     contours = measure.find_contours(blurred,(0.8*255))
     contours, hierarchy = cv2.findContours(thresh2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-#     len(contours)
-    # np.array(contours).shape
-    # Contour properties
-    Props = ObjProps(labeled=thresh2, cropped_rgb=cropped_rgb, cropped_lab=cropped_lab, cropped_hsv=cropped_hsv, ImagePath=ImagePath, rm_envelope=False)
-    
-    # Detected spikelets
-    # print("Fitted contours: ", len(contours))
-    
+
+    Props = ObjProps(labeled=thresh2, cropped_rgb=cropped_rgb, cropped_lab=cropped_lab,
+                     cropped_hsv=cropped_hsv, ImagePath=ImagePath, rm_envelope=False)
+
+    Props.drop(Props[Props.Area < 50].index, inplace=True)
+    # q = Props["Area"].quantile(0.5)
+
     # Create list for slopes
     Slopes = []
 #     len(Slopes)
 
-    if plot==True:
-
-        # Plot all found contours
-        OutImage = cv2.drawContours(OutImage, contours, -1, (255,255,255), 10);
+    if Plot==False:
 
         for c in contours:
-            # Generate random colors
-            random_channels = (np.random.choice(range(256), size=3))
-            rr = int(random_channels[0])
-            rg = int(random_channels[1])
-            rb = int(random_channels[2])
-            
-            ellipse = cv2.fitEllipse(c)
-            OutImage = cv2.ellipse(OutImage,ellipse,(rr,rg,rb),10);
 
-            # Fit a line 
-            rows,cols = OutImage.shape[:2]
-            [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
-            lefty = int((-x*vy/vx) + y)
-            righty = int(((cols-x)*vy/vx)+y)
-            OutImage = cv2.line(OutImage,(cols-1,righty),(0,lefty),(rr,rg,rb),3);
-            
-            # Slope from tope left, which is is the origin [0,0]
-            rise = (0,lefty)[1] - (cols-1,righty)[1]
-            run = cols
-            Slope = rise/run
-            Slopes.append(Slope)            
-        
-        # Plot
-        plt.imshow(OutImage)
-        
-    else:
-        
-        for c in contours:
-            
+            if len(c)<5:
+                continue
+
             ellipse = cv2.fitEllipse(c)
-            
-            # Fit a line 
+
+            # Fit a line
             rows,cols = OutImage.shape[:2]
             [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
             lefty = int((-x*vy/vx) + y)
@@ -1052,24 +1087,74 @@ def CountorProps(cropped_rgb, cropped_lab, cropped_hsv, thresh2, ImagePath, Resi
             run = cols
             Slope = rise/run
             Slopes.append(Slope)
-    
-    if len(Slopes) != len(Props):
-        Props['Contour_Angle'] = [np.nan] * len(Props)
-    else:
-        # Add slopes to data frame
-        Props['Contour_Angle'] = Slopes
-    
-    
-    # Remove first row, corresponding to spikes' envelope
-    if rm_envelope==True:
-        return Props.iloc[1: , :]
-    else:
+        if len(Slopes) != len(Props):
+            Props['Contour_Angle'] = [np.nan] * len(Props)
+        else:
+            # Add slopes to data frame
+            Props['Contour_Angle'] = Slopes
+
         return Props
 
 
+    if Plot==True:
 
-# Example:
-# labels_cont = CountorProps(cropped_rgb, cropped_lab, thresh2, ImagePath=img_name, ResizeFactor=30, MinSize = 1000, thr2=0.8, plot=True)
+        # Plot all found contours
+        OutImage = cv2.drawContours(OutImage, contours, -1, (0,255,255), 5);
+        # plt.imshow(OutImage)
+
+        # Enumerate objects
+        OutImage = EnumerateSpkCV(thresh2, OutImage, TextSize=2, TROE2020=False, Plot=False, PlotOut=True)
+        # plt.imshow(OutImage)
+
+        for c in contours:
+
+            if len(c)<5:
+                continue
+
+            # # Generate random colors
+            # random_channels = (np.random.choice(range(256), size=3))
+            # rr = int(random_channels[0])
+            # rg = int(random_channels[1])
+            # rb = int(random_channels[2])
+
+            ellipse = cv2.fitEllipse(c)
+            # OutImage = cv2.ellipse(OutImage,ellipse,(rr,rg,rb),10);
+            OutImage = cv2.ellipse(OutImage,ellipse,(240,0,0),5);
+
+            # Fit a line
+            rows,cols = OutImage.shape[:2]
+            [vx,vy,x,y] = cv2.fitLine(c, cv2.DIST_L2,0,0.01,0.01);
+            lefty = int((-x*vy/vx) + y)
+            righty = int(((cols-x)*vy/vx)+y)
+            # OutImage = cv2.line(OutImage,(cols-1,righty),(0,lefty),(rr,rg,rb),3);
+
+            # Slope from tope left, which is is the origin [0,0]
+            rise = (0,lefty)[1] - (cols-1,righty)[1]
+            run = cols
+            Slope = rise/run
+            Slopes.append(Slope)
+
+        if len(Slopes) != len(Props):
+            Props['Contour_Angle'] = [np.nan] * len(Props)
+        else:
+            # Add slopes to data frame
+            Props['Contour_Angle'] = Slopes
+
+
+        if Save==True:
+            return Props, OutImage
+        else:
+            plt.imshow(OutImage)
+            return Props
+
+
+
+# # # Example:
+# labels_cont, OutImage = CountorProps(cropped_rgb, cropped_lab, cropped_hsv,
+#                            thresh2=thresh2, ImagePath=img_name,
+#                            ResizeFactor=30, MinSize = 1000, thr2=0.8,
+#                            plot=True, Save=True)
+
 
 
 
@@ -1093,7 +1178,7 @@ def Heatmat(a, frames=30):
             name = "./GIFS/img_00"+str(frame)+".png"
         else:
             name = "./GIFS/img_"+str(frame)+".png"
-        
+
         new_mat = np.log10( 1+(mat**(frame) ) )
         sns.heatmap(new_mat)
         plt.savefig(name)
@@ -1130,8 +1215,8 @@ def makeGIF(filenames, duration = 0.25, out_name=None):
 
 
 def DistAll(bw, HeatMap=True, HeatMapOut=False, spike_length=None):
-    
-    nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(np.uint8(bw), 
+
+    nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(np.uint8(bw),
                                                                                connectivity=8)
     # len(centroids[1:][:])
     img_center = centroids[0][:]
@@ -1157,17 +1242,17 @@ def DistAll(bw, HeatMap=True, HeatMapOut=False, spike_length=None):
 
     # Convert list to array
     D = np.array(distances)
-    
+
     if spike_length != None:
         # Express it as a fraction from spike length
         D = D/spike_length
     else:
         D = D
-    
+
     # Heatmap
     if HeatMap==True:
         sns.heatmap(D)
-    
+
     if HeatMapOut==True:
         hm = sns.heatmap(D)
         return D, hm
@@ -1205,7 +1290,7 @@ def imgraph(image, axis=0):
 
 
 
-    
+
 def ComparePlots(rows, cols, ListImages, fontsize=10):
     plots = rows * cols
     fig, axes = plt.subplots(rows, cols, sharex=True, sharey=True)
@@ -1216,95 +1301,203 @@ def ComparePlots(rows, cols, ListImages, fontsize=10):
         ax[i].set_title(Title, fontsize=fontsize)
     fig.tight_layout()
     plt.show()
-    
-# Example:
-# ComparePlots(3,1,[cropped_rgb, cropped_lab, cropped_hsv])  
-    
-
-    
-    
-    
-    
-    
-    
-    
-def SeparateSpikes(ImagePath, Outfile = None):
-    
-    # Remove bakground
-    I = RemoveBackground(ImagePath, OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=False, hsv_out=False, bw_out=True)
-    rgb0 = I[0]
-#     # Convert to gray
-#     gray0 = img0 @ [0.2126, 0.7152, 0.0722]
-# #     gray0 = img0 @ [0.2126, 0.7152, 0.0722]
-
-#     # Threshold
-#     otsu = filters.threshold_otsu(gray0)
-#     bw0 = gray0 > otsu
-#     bw1 = morphology.remove_small_objects(bw0, min_size=1.5e-05 * gray0.shape[0] * gray0.shape[1])
-    bw0 = I[1]
-#     plt.imshow(bw1)
-    # Label spikes
-    labeled_spks, num_spikes = label(bw0>0, return_num = True)
-    
-    # Loop through spikes
-    for spk in range(1,num_spikes):
-        
-        # Select current spike
-        myspk = labeled_spks == spk
-
-        # Crop spike
-        slice_x, slice_y = ndimage.find_objects(myspk)[0]
-        cropped_spk = myspk[slice_x, slice_y]
-        cropped_rgb = rgb0[slice_x, slice_y]
-        cropped_rgb = np.where(cropped_spk[..., None], cropped_rgb, 0)
-        
-        # Add 10 pixels to each border
-        padded = np.pad(cropped_rgb, pad_width=[(10, 10),(10, 10),(0, 0)], mode='constant')
-        
-        # Save image 
-        im = Image.fromarray(padded)
-        
-        if Outfile == None:
-            
-            Split_Path = ImagePath.split("\\")
-            OutName = Split_Path[-1].replace(".tif", "")
-            Split_Path = Split_Path[:-1]
-            OutDir = '\\'.join([str(i) for i in Split_Path])
-            OutDir = OutDir + "\\IndividualSpikes\\"
-            path = pathlib.Path(OutDir)
-            path.mkdir(parents=True, exist_ok=True)
-            
-            if spk < 10:
-                OutName = OutDir + OutName + "_spk0" + str(spk) + '.jpg'
-            else: 
-                OutName = OutDir + OutName + "_spk" + str(spk) + '.jpg'
-        
-        im.save(OutName)
-        print("Saved image as: " + OutName)
 
 # Example:
-# SeparateSpikes(ImagePath=img_name)    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+# ComparePlots(3,1,[cropped_rgb, cropped_lab, cropped_hsv])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+###***********************************************************###
+            # Functions for Machine Learning Purposes
+###***********************************************************###
+
+
+
+
+
+
+
+def read_and_Resize(image_path, ResizeFactor = 8, mask=False):
+
+    if mask==True:
+        labeled_img = plt.imread(image_path)
+        labeled_img = labeled_img.astype(np.uint8)
+        labeled_img = labeled_img[:,:,0]
+        # plt.imshow(labeled_img)
+        kernel = np.ones((3,3), np.uint8)
+        labeled_img = cv2.erode(labeled_img, kernel, iterations=1)
+        im = Image.fromarray((labeled_img).astype(np.uint8))
+    else:
+        img = cv2.imread(image_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        im = Image.fromarray((img).astype(np.uint8))
+
+    # Resize image
+    (width, height) = (im.width // ResizeFactor, im.height // ResizeFactor)
+    resized_img = im.resize((width, height))
+    resized_img = np.asarray(resized_img)
+
+    return(resized_img)
+
+# img = read_and_Resize(image_path, ResizeFactor = ResizeFactor, mask=False)
+
+
+
+
+
+
+
+
+
+
+def features_to_df(img, df_original):
+    img2 = img.reshape(-1)
+    df = df_original.copy()
+
+    #Generate Gabor features
+    num = 1  #To count numbers up in order to give Gabor features a lable in the data frame
+    kernels = []
+    for theta in range(2):   #Define number of thetas
+        theta = theta / 4. * np.pi
+        for sigma in (1, 3):  #Sigma with 1 and 3
+            for lamda in np.arange(0, np.pi, np.pi / 4):   #Range of wavelengths
+                for gamma in (0.05, 0.5):   #Gamma values of 0.05 and 0.5
+
+
+                    gabor_label = 'Gabor' + str(num)  #Label Gabor columns as Gabor1, Gabor2, etc.
+    #                print(gabor_label)
+                    ksize=9
+                    kernel = cv2.getGaborKernel((ksize, ksize), sigma, theta, lamda, gamma, 0, ktype=cv2.CV_32F)
+                    kernels.append(kernel)
+                    #Now filter the image and add values to a new column
+                    fimg = cv2.filter2D(img2, cv2.CV_8UC3, kernel)
+                    filtered_img = fimg.reshape(-1)
+                    df[gabor_label] = filtered_img  #Labels columns as Gabor1, Gabor2, etc.
+                    # print(gabor_label, ': theta=', theta, ': sigma=', sigma, ': lamda=', lamda, ': gamma=', gamma)
+                    num += 1  #Increment for gabor column label
+
+
+    ########################################
+    #Gerate OTHER FEATURES and add them to the data frame
+
+    #CANNY EDGE
+    edges = cv2.Canny(img, 100,200)   #Image, min and max values
+    # plt.imshow(edges)
+    edges1 = edges.reshape(-1)
+    df['Canny Edge'] = edges1 #Add column to original dataframe
+
+    from skimage.filters import roberts, sobel, scharr, prewitt
+
+    #ROBERTS EDGE
+    edge_roberts = roberts(img)
+    edge_roberts1 = edge_roberts.reshape(-1)
+    df['Roberts'] = edge_roberts1
+
+    #SOBEL
+    edge_sobel = sobel(img)
+    edge_sobel1 = edge_sobel.reshape(-1)
+    df['Sobel'] = edge_sobel1
+
+    #SCHARR
+    edge_scharr = scharr(img)
+    edge_scharr1 = edge_scharr.reshape(-1)
+    df['Scharr'] = edge_scharr1
+
+    #PREWITT
+    edge_prewitt = prewitt(img)
+    edge_prewitt1 = edge_prewitt.reshape(-1)
+    df['Prewitt'] = edge_prewitt1
+
+    #GAUSSIAN with sigma=3
+    from scipy import ndimage as nd
+    gaussian_img = nd.gaussian_filter(img, sigma=3)
+    gaussian_img1 = gaussian_img.reshape(-1)
+    df['Gaussian s3'] = gaussian_img1
+
+    #GAUSSIAN with sigma=7
+    gaussian_img2 = nd.gaussian_filter(img, sigma=7)
+    gaussian_img3 = gaussian_img2.reshape(-1)
+    df['Gaussian s7'] = gaussian_img3
+
+    #MEDIAN with sigma=3
+    median_img = nd.median_filter(img, size=3)
+    median_img1 = median_img.reshape(-1)
+    df['Median s3'] = median_img1
+
+    #VARIANCE with size=3
+    variance_img = nd.generic_filter(img, np.var, size=3)
+    variance_img1 = variance_img.reshape(-1)
+    df['Variance s3'] = variance_img1  #Add column to original dataframe
+
+    return(df)
+
+# df2 = features_to_df(img, df_original=df)
+# df = df2
+
+
+
+
+
+
+
+
+
+def CollectTrainData(image_path, mask_path, ResizeFactor=8):
+
+    # Create empty df
+    df = pd.DataFrame()
+
+    img = read_and_Resize(image_path, ResizeFactor = ResizeFactor, mask=False)
+
+    img2 = img.reshape(-1)
+
+    df['Original Image'] = img2
+
+    df = features_to_df(img, df_original=df)
+
+    labeled, unlabeled = add_labels(mask_path=mask_path, MinSize=30, MaxSize=200)
+
+    #Remember that you can load an image with partial labels
+    #But, drop the rows with unlabeled data
+    df['Labels'] = labeled.reshape(-1)
+    df['ToDrop'] = unlabeled.reshape(-1)
+
+    df = df.drop(df[df['ToDrop'] == 1].index)
+    df = df.drop(labels = ["ToDrop"], axis=1)
+    Image_Name =  image_path.split('\\')[-1]
+    df['Image_Name'] = [Image_Name] * len(df['Labels'])
+
+    return(df)
+
+# images_path = r'.\CVATLabeling\TROE2021_p003-p012\images\default'
+# Images = ListImages(images_path, imgformat=".tif", recursive=False)
+
+# masks_path = r'.\CVATLabeling\TROE2021_p003-p012\masks'
+# Masks = ListImages(masks_path, imgformat=".tif", recursive=False)
+
+# ResizeFactor = 8
+# df_all = pd.DataFrame()
+
+# for i in range(0,len(Images)):
+#     df = CollectTrainData(image_path=Images[i],mask_path=Masks[i], ResizeFactor=8)
+#     df_all = df_all.append(df)
+
+# # Wall time: 1min 33s
+# # About 13 sec per image/label
