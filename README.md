@@ -10,10 +10,8 @@ These instructions
 
 ### 1. Clone repository
 ```
-{
-  git clone https://github.com/joanmanbar/SpykProps.git
-  cd SpykProps
-}
+git clone https://github.com/joanmanbar/SpykProps.git
+cd SpykProps
 ```
 
 ### 3. Add the images folder to the `SpykProps` repository
@@ -33,7 +31,7 @@ SpykProps/
 
 ### 2. Install requirements
 ```
-pip install -r requirement.txt
+pip install -r requirements.txt
 ```
 *Note*: If a module (e.g. 'mymodule') is missing, install it as follows:
 
