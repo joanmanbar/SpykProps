@@ -9,9 +9,12 @@ CVATLabeling/
 GIFS/
 Output/
 OldFiles/
+Files/
+__pycache__/
 
 # Code
 
 # Files
 *.gsheet
 ManuscriptExamples.ipynb
+SpykPropsBatchExe.ipynb

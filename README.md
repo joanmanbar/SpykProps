@@ -3,7 +3,7 @@
 ### Author:
 Joan Bareto Ortiz (jbarreto@umn.edu)
 
-This repository contains the Python code to collect properties from images of perennial ryegrass spikes (inflorescences). The code was written for images collected with a flatbed scanner at 600 dpi using a black velvet as background. Differences in image size, resolution, or background can affect the output of the analysis. Please refer to the Overview.ipynb file to use SpykProps on single images using Jupyter-lab, or follow the instructions below for *batch processing*.
+This repository contains the Python code to collect spike (inflorescences) properties from images of perennial ryegrass. The code was written for images collected with a flatbed scanner at 600 dpi using a black velvet as background. Differences in image size, resolution, or background can affect the output of the analysis. Please refer to the Overview.ipynb file to use SpykProps on single images using Jupyter-lab, or follow the instructions below for *batch processing*.
 
 ## Instructions for batch processing
 These instructions
@@ -33,30 +33,23 @@ SpykProps/
 
 ### 2. Install requirements
 ```
-{
-  pip install -r requirement.txt
-}
+pip install -r requirement.txt
 ```
 *Note*: If a module (e.g. 'mymodule') is missing, install it as follows:
 
 ```
-{
-  pip install mymodule
-}
+pip install mymodule
 ```
 
 ### 3. Execute batch function
 Check the help menu
 ```
-{
-  python SpykBatch.py -h
-}
+python SpykBatch.py -h
 ```
 Then adjust the parameters as needed and run the function accordingly.
 Example:
 ```
-{
-  python SpykBatch.py -d ".\MyImages" -r 0.5 -ct 0,30 -efd True -nh 30
-}
+python SpykBatch.py -d ".\MyImages" -r 0.5 -ct 0,30 -efd True -nh 30
 ```
+
 This line executes the `SpykBatch.py` taking `".\MyImages"` as directory; `0.5` as rescale factor (i.e., resizes the image by 0.5 in each side); the channel `0` (e.g. R in RGB, or B in BGR images) and keeps pixel values greater than `30`; and computes the Elliptical Fourier Descriptors (`-efd`) using `30` harmonics.
