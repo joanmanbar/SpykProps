@@ -54,21 +54,21 @@ if args.channel_thresh != None:
 else:
     channel_thresh = None
     segm_print = "Otsu by 0.25"
-    
+
 if args.spikelet_data == False:
     SpikeletData = False
     spklt_df_rpint = "False"
 else:
     SpikeletData = True
     spklt_df_rpint = "True"
-    
+
 if args.distances_data == False:
     EucDist = False
     dist_df_rpint = "False"
 else:
     EucDist = True
     dist_df_rpint = "True"
-    
+
 if args.Fourier_desc == False:
     EFD = False
     efd_print = "False"
@@ -79,44 +79,38 @@ else:
     import pyefd
     from pyefd import elliptic_fourier_descriptors
     from pyefd import normalize_efd
-    
+
 if args.n_harmonics != None:
     n_harmonics = args.n_harmonics
     nh_print = n_harmonics
-    
-    EDF_cols = ['An','Bn','Cn','Dn']
-    EDF_nums = list(range(1,n_harmonics+1))
-    EDF_nums = [str(x) for x in EDF_nums]
-    Cols = np.char.add(EDF_cols,np.array(EDF_nums)[:,None])
-    Cols = Cols.reshape(1,4*n_harmonics)
-    Cols = Cols.tolist()
-    Cols = Cols[0]
     EFD_data = pd.DataFrame()
 else:
     n_harmonics = None
     nh_print = "None"
-    
+
 MinDist = args.min_dist
 QC = args.quality_control
 
 
 # Define output folders
 
-date_time_now = datetime.now().strftime("%y%m%d_%H%M")  
+date_time_now = datetime.now().strftime("%y%m%d_%H%M")
 OutFolder = Images[0].rsplit('/', 1)[0]
 OutFolder = OutFolder + '/' + date_time_now
 if QC == True:
-    SpikeFolder = OutFolder + '/SpikeSegm/' # Spike segmentation 
-    Path(SpikeFolder).mkdir(parents=True, exist_ok=True)     
-    SpikeletFolder = OutFolder + '/SpikeletSegm/' # Spike segmentation 
-    Path(SpikeletFolder).mkdir(parents=True, exist_ok=True)      
-    LengthFolder = OutFolder + '/SpikeLength/' # Spike length approximation 
-    Path(LengthFolder).mkdir(parents=True, exist_ok=True) 
+    SpikeFolder = OutFolder + '/SpikeSegm/' # Spike segmentation
+    Path(SpikeFolder).mkdir(parents=True, exist_ok=True)
+    SpikeletFolder = OutFolder + '/SpikeletSegm/' # Spike segmentation
+    Path(SpikeletFolder).mkdir(parents=True, exist_ok=True)
+    LengthFolder = OutFolder + '/SpikeLength/' # Spike length approximation
+    Path(LengthFolder).mkdir(parents=True, exist_ok=True)
+    EFD_Folder = OutFolder + '/EFD/' # Spike length approximation
+    Path(EFD_Folder).mkdir(parents=True, exist_ok=True)
     print('\n*********************************')
     print('\nCreated folder (date_time)',OutFolder)
-    
 
-# Define function    
+
+# Define function
 def SpykBatch():
 
     print("\n*********************************\n\nSettings: ",
@@ -131,17 +125,17 @@ def SpykBatch():
       "\n  Number of harmonics for EFD", str(nh_print),
      "\n\n*********************************\n")
 
-    print('Starting analysis...\n\n')        
+    print('Starting analysis...\n\n')
 
-    start_time = time.time()    
-    Nimages = str(len(Images)) 
+    start_time = time.time()
+    Nimages = str(len(Images))
     Spikes_data = pd.DataFrame()
     Spklts_data = pd.DataFrame()
-    Distances_data = pd.DataFrame()   
+    Distances_data = pd.DataFrame()
     EFD_data = pd.DataFrame()
     Counter=0
 
-    for img_name in Images:        
+    for img_name in Images:
         try:
             Image_Name = img_name.split('/')[-1]
             Counter = Counter+1
@@ -154,18 +148,18 @@ def SpykBatch():
             image_time = time.time()
 
             # Spike segmentation
-            I = SF.spike_segm(img_name, rescale_rgb=rescale_rgb, channel_thresh=channel_thresh, 
-                           OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True, 
+            I = SF.spike_segm(img_name, rescale_rgb=rescale_rgb, channel_thresh=channel_thresh,
+                           OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True,
                            hsv_out=True, bw_out=True, crop_coord=[44,6940,25,4970])
             rgb0 = I[0]
             gray0 = I[1]
             lab0 = I[2]
             hsv0 = I[3]
-            bw0 = I[4]    
+            bw0 = I[4]
 
             # Enumerate spikes (to check spike segmentation)
             if QC == True:
-                Enum_spike = SF.EnumerateSpkCV(bw=bw0, rgb=rgb0, TextSize=None, 
+                Enum_spike = SF.EnumerateSpkCV(bw=bw0, rgb=rgb0, TextSize=None,
                                           Plot=False, PlotOut=True)
                 Filename = SpikeFolder + Image_Name.replace('.tif','.jpg')
                 im = Image.fromarray(Enum_spike)
@@ -179,11 +173,11 @@ def SpykBatch():
 
             # Prepare empty lists and DFs
             SpkLengths = []    # Spike lengths
-            SpkDists = []    # spikelet distances 
+            SpkDists = []    # spikelet distances
             SpkltsPerSpk = pd.DataFrame()    # Spikelets data
-            DistancesPerSpk = pd.DataFrame()    # Spikelet distances data     
+            DistancesPerSpk = pd.DataFrame()    # Spikelet distances data
 
-            # Start at 1 so it ignores background (0) 
+            # Start at 1 so it ignores background (0)
             for Label in range(1, num_spikes+1):
                 try:
                     now = datetime.now().strftime("%H:%M:%S")
@@ -198,13 +192,13 @@ def SpykBatch():
                     cropped_lab = color.rgb2lab(cropped_rgb)
                     cropped_hsv = color.rgb2hsv(cropped_rgb)
 
-                    # Spike length 
+                    # Spike length
                     if QC == True:
                         sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
                         SpkLengths.append(sl)
                         Filename = LengthFolder + Image_Name.replace('.tif','.jpg')
                         Filename = Filename + '_spk_'+ str(Label) + '.jpg'
-                        length_img.save(Filename)   
+                        length_img.save(Filename)
 
                     else:
                         sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
@@ -225,7 +219,7 @@ def SpykBatch():
                             plot_ellipse=False,Numbered=False,img_out=False,plot_segmented=False)
 
                     if SpikeletData==True:
-                        SpikeletProps = SF.SpikeletsDF(labeled=Spikelets,Pad=200,cropped_rgb=cropped_rgb, 
+                        SpikeletProps = SF.SpikeletsDF(labeled=Spikelets,Pad=200,cropped_rgb=cropped_rgb,
                                            cropped_lab=cropped_lab, cropped_hsv=cropped_hsv,
                                            ImagePath=img_name)
                         SpikeletProps = pd.concat([EllipseData,SpikeletProps], axis=1)
@@ -233,35 +227,17 @@ def SpykBatch():
                     # Distances between spikelets (ellipses' centroids)
                     if EucDist == True:
                         D = SF.DistAll(EllipseData=EllipseData, HeatMap=False, spike_length=sl)
-                        SpkDists.append(D)     
-                        
+                        SpkDists.append(D)
+
                     if EFD == True:
                         CoeffsPerSpike = pd.DataFrame()
-                        bw_efd = np.pad(cropped_spk, pad_width=[(100, 100),(100, 100)], mode='constant')
-                        bw_efd = ndi.binary_fill_holes(bw_efd)
-                        bw_efd = np.uint8(bw_efd)
-                        contour, hierarchy = cv2.findContours(bw_efd,cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)
-                        contour = np.squeeze(contour)
-                        x = contour[:,0]
-                        y = contour[:,1]
-                        # First n coefficients
-                        coeffs = spatial_efd.CalculateEFD(x,y,n_harmonics)
-                        coeffs, rotation = spatial_efd.normalize_efd(coeffs, size_invariant=True)
-                        coeffs = coeffs.reshape(1,4*n_harmonics)
-
-                        # Min number of coefficients
-                        # Nyquist Freqency: maximum number of harmonics that can be computed for a given contour
-                        nyquist = spatial_efd.Nyquist(x)
-                        tmpcoeffs = spatial_efd.CalculateEFD(x, y, nyquist+1)
-                        harmonics = spatial_efd.FourierPower(tmpcoeffs, x)
-                        # coeffs_min = spatial_efd.CalculateEFD(x, y, harmonics)
-                        # coeffs_min, rotation = spatial_efd.normalize_efd(coeffs_min, size_invariant=True)
-
-                        coeffs = pd.DataFrame(coeffs, columns=Cols)
-                        coeffs['Image_Name'] = Image_Name
-                        coeffs['Spike_Label'] = Label
-                        coeffs['Min_Coeffs'] = harmonics
-                        CoeffsPerSpike = pd.concat([CoeffsPerSpike,coeffs])
+                        Filename = EFD_Folder + Image_Name.replace('.tif','')
+                        Filename = Filename + '_'+ str(Label)
+                        coeff_df = SF.efd(cropped_spk, n_harmonics=30, plot_efd=True, efd_filename=Filename)
+                        coeff_df['Image_Name'] = Image_Name
+                        coeff_df['Spike_Label'] = Label
+                        # coeffs['Min_Coeffs'] = harmonics
+                        CoeffsPerSpike = pd.concat([CoeffsPerSpike,coeff_df])
 
                     # Add spike label
                     SpikeletProps['Spike_Label'] = [str(Label)] * len(SpikeletProps)
@@ -308,18 +284,18 @@ def SpykBatch():
             Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
             EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
             # Save current progress
-            print("\n\nRun time: ", 
-                  str(round(time.time() - start_time, 1)), "seconds", 
-                  " \nProcessed spikes: ", len(Spikes_data), 
+            print("\n\nRun time: ",
+                  str(round(time.time() - start_time, 1)), "seconds",
+                  " \nProcessed spikes: ", len(Spikes_data),
                   "\nAll data was saved in \n", OutFolder)
             print(e)
             pass
 
     # How long did it take to rusn the whole code?
-    print("\n\nRun time: ", 
-          str(round(time.time() - start_time, 1)), "seconds", 
+    print("\n\nRun time: ",
+          str(round(time.time() - start_time, 1)), "seconds",
           "\nProcessed Images: ", len(Images),
-          " \nProcessed spikes: ", len(Spikes_data), 
+          " \nProcessed spikes: ", len(Spikes_data),
           "\nAll data was saved in \n", OutFolder
          )
 
@@ -328,10 +304,10 @@ def SpykBatch():
     Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
     Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
     EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
-        
-    
 
 
-    
+
+
+
 if __name__ == '__main__':
     SpykBatch()

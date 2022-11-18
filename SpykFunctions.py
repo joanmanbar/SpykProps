@@ -53,7 +53,7 @@ import imageio
 import random
 from datetime import datetime, date
 import time
-
+import spatial_efd
 
 
 
@@ -80,38 +80,38 @@ def ListImages(path, imgformat=".tif", recursive=False):
 
 
 # Spike segmentation
-def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25, 
-               rgb_out=True, gray_out=True,lab_out=True, hsv_out=True, 
+def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25,
+               rgb_out=True, gray_out=True,lab_out=True, hsv_out=True,
                bw_out=True, crop_coord=None):
     # Read image
     if isinstance(img, str) == True:
         img0 = io.imread(img)
     else:
-        img0 = img 
-    
+        img0 = img
+
     # Crop images with list (L) such that L=[top,bottom,left,right]
     # [44:6940, 25:4970, :]
     if crop_coord != None:
-        img1 = img0[crop_coord[0]:crop_coord[1], 
+        img1 = img0[crop_coord[0]:crop_coord[1],
                     crop_coord[2]:crop_coord[3], :]
     else:
         img1 = img0
-        
+
     # Rescale
     if rescale_rgb != None:
-        rescaled_rgb = rescale(img1[...], rescale_rgb, preserve_range=False, 
+        rescaled_rgb = rescale(img1[...], rescale_rgb, preserve_range=False,
                        channel_axis=2, anti_aliasing=False)
         rescaled_rgb = 255 * rescaled_rgb
         rescaled_rgb = rescaled_rgb.astype(np.uint8)
         img1 = rescaled_rgb
-        
+
     # Segmentation based on channel_thresh list (L) such that L = [channel, threshold in uint8]
     if channel_thresh != None:
         channel = channel_thresh[0]
         threshold = channel_thresh[1]
         bw0 = img1[:,:,channel] > threshold
     # Otsu segmentation (default)
-    else: 
+    else:
         # Convert to gray
         gray0 = img1 @ [0.2126, 0.7152, 0.0722]
         # Set image threshold
@@ -123,7 +123,7 @@ def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25,
     n_pixels = img1.shape[0] * img1.shape[1]
     minimum_size = n_pixels/10000
     bw1 = morphology.remove_small_objects(bw0, min_size=np.floor(minimum_size))
-    
+
     # Masks
     ImagesOut = []
     if rgb_out==True:
@@ -145,7 +145,7 @@ def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25,
 
 ## Usage:
 # %%time
-# I = spike_segm(Images[3], rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25, rgb_out=True, 
+# I = spike_segm(Images[3], rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25, rgb_out=True,
 #                gray_out=True, lab_out=True, hsv_out=True, bw_out=True,
 #               crop_coord=[44,6940,25,4970])
 # rgb0 = I[0]
@@ -164,8 +164,8 @@ def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25,
 
 
 # Enumerate spikes
-def EnumerateSpkCV(bw, rgb, TextSize=None, Plot=True, PlotOut=False):
-    
+def EnumerateSpkCV(bw, rgb, TextSize=None, Plot=True, PlotOut=False, BaseZero=False):
+
     if TextSize == None:
         TextSize = round(0.001 * np.sqrt(bw.shape[0] * bw.shape[1]), 1)
     else:
@@ -174,9 +174,12 @@ def EnumerateSpkCV(bw, rgb, TextSize=None, Plot=True, PlotOut=False):
     nb_components, output, stats, centroids = cv2.connectedComponentsWithStats(np.uint8(bw), connectivity=8)
     img = rgb.copy()
 
-    # ignore the background (centroid 0)
+    # ignore the background (centroid 0) / Or star4t at zero if needed
     centroids = centroids[1:]
-    counter=1
+    if BaseZero==True:
+        counter=0
+    else:
+        counter=1
 
     for c in centroids:
 #         print(c)
@@ -209,11 +212,11 @@ def EnumerateSpkCV(bw, rgb, TextSize=None, Plot=True, PlotOut=False):
 def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
 
     cropped_spk = np.pad(cropped_spk, pad_width=[(100, 100),(100, 100)], mode='constant')
-    
+
     Length_data = []
     Time_data = []
-    
-    # Bounding box 
+
+    # Bounding box
     if Method == "all" or Method == "bbox":
         track_time = time.time() # Track time
         label_bbox = label(cropped_spk)
@@ -222,7 +225,7 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
         total_time = round(time.time() - track_time, 2) # Total time
         Length_data.append(bbox_MajorAxis_L)
         Time_data.append(total_time)
-    
+
     # Convex hull
     if Method == "all" or Method == "chull":
         track_time = time.time() # Track time
@@ -230,12 +233,12 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
         label_chull = label(chull)
         chull_MajorAxis_L = regionprops(label_chull)
         chull_MajorAxis_L  = round(chull_MajorAxis_L[0]['major_axis_length'], 0)
-        total_time = round(time.time() - track_time, 2) # Total time        
+        total_time = round(time.time() - track_time, 2) # Total time
         Length_data.append(chull_MajorAxis_L)
         Time_data.append(total_time)
-    
+
     # Skeleton (Lee, 94)
-    if Method == "all" or Method == "skel_ma":     
+    if Method == "all" or Method == "skel_ma":
         track_time = time.time() # Track time
         # Severly blur the image
         blur = cv2.blur(np.float32(cropped_spk),(100,100))
@@ -244,12 +247,12 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
         skeleton_ma = medial_axis(thrb)
         # Spike length
         SpkL_ma = cv2.countNonZero(np.float32(skeleton_ma))
-        total_time = round(time.time() - track_time, 2) # Total time        
+        total_time = round(time.time() - track_time, 2) # Total time
         Length_data.append(SpkL_ma)
         Time_data.append(total_time)
-        
+
     # Skeleton
-    if Method == "all" or Method == "skel":     
+    if Method == "all" or Method == "skel":
         track_time = time.time() # Track time
         # Severly blur the image
         blur = cv2.blur(np.float32(cropped_spk),(100,100))
@@ -258,11 +261,11 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
         skeleton = skeletonize(thrb)
         # Spike length
         SpkL = cv2.countNonZero(np.float32(skeleton))
-        total_time = round(time.time() - track_time, 2) # Total time        
+        total_time = round(time.time() - track_time, 2) # Total time
         Length_data.append(SpkL)
         Time_data.append(total_time)
 
-        
+
     # Visualize overlay?
     if Overlay == True and Method == 'skel_ma':
         # Dilate skeleton and color it
@@ -281,25 +284,25 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
         img_hsv[..., 1] = color_mask_hsv[..., 1]
         img_masked = color.hsv2rgb(img_hsv)
         img_masked = Image.fromarray((img_masked*255).astype(np.uint8))
-        
+
         return Length_data[0], img_masked
-        
+
     elif Overlay == False and Method == "all":
         Length_data = pd.DataFrame(Length_data).transpose()
         Length_data = Length_data.rename(
             columns={0:'bbox',1:'chull',2:'skel_Lee',3:'skel'})
-        
+
         Time_data = pd.DataFrame(Time_data).transpose()
         Time_data = Time_data.rename(
             columns={0:'bbox',1:'chull',2:'skel_Lee',3:'skel'})
-        
+
         return Length_data, Time_data
     else:
         return Length_data[0]
 
 ## Example:
 # SL, length_img = spk_length(cropped_spk, Overlay=True)
-# Lengths,Time = spk_length(cropped_spk, Method='all', Overlay=False) 
+# Lengths,Time = spk_length(cropped_spk, Method='all', Overlay=False)
 
 
 
@@ -310,23 +313,23 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
 
 
 def LengthBatch(Images):
-    
+
     import time
     from datetime import datetime, date
-    start_time = time.time()    
-    Nimages = str(len(Images)) 
+    start_time = time.time()
+    Nimages = str(len(Images))
     Spikes_data = pd.DataFrame()
     Contours_data = pd.DataFrame()
     Spklts_data = pd.DataFrame()
-    Distances_data = pd.DataFrame()   
-    
+    Distances_data = pd.DataFrame()
+
     Lengths_data = pd.DataFrame()
     Duration_data = pd.DataFrame()
-    
+
     Counter=0
 
     for img_name in Images:
-        
+
         Counter = Counter+1
         Progress = str(Counter) + "/" + Nimages
         # img_name=Images[0]
@@ -338,7 +341,7 @@ def LengthBatch(Images):
         image_time = time.time()
 
         # Remove background and create images
-        I = RemoveBackground(img_name, OtsuScaling=0.25, rgb_out=False, 
+        I = RemoveBackground(img_name, OtsuScaling=0.25, rgb_out=False,
                  gray_out=False, lab_out=False, hsv_out=False, bw_out=True)
         bw0 = I[0]
         labeled_spks, num_spikes = label(bw0, return_num = True)
@@ -346,7 +349,7 @@ def LengthBatch(Images):
         SpkLengths = pd.DataFrame()
         TrackTime = pd.DataFrame()
 
-        # Start at 1 so it ignores background (0) 
+        # Start at 1 so it ignores background (0)
         for Label in range(1, num_spikes+1):
 
             spk = labeled_spks==Label
@@ -358,18 +361,18 @@ def LengthBatch(Images):
 
             # Spike length
             sl, t = spk_length(cropped_spk, Method='all', Overlay=False)
-            SpkLengths = pd.concat([SpkLengths,sl], axis=0)  
-            TrackTime = pd.concat([TrackTime,t], axis=0) 
-        
+            SpkLengths = pd.concat([SpkLengths,sl], axis=0)
+            TrackTime = pd.concat([TrackTime,t], axis=0)
+
         Image_Name = img_name.split('\\')[-1]
         Image_Name = [Image_Name] * num_spikes
         SpkLengths['Image_Name'] = Image_Name
         TrackTime['Image_Name'] = Image_Name
-        
+
         Spike_Label = [number for number in range(1, num_spikes+1)]
-        SpkLengths['Spike_Label'] = Spike_Label   
-        TrackTime['Spike_Label'] = Spike_Label 
-        
+        SpkLengths['Spike_Label'] = Spike_Label
+        TrackTime['Spike_Label'] = Spike_Label
+
         Lengths_data = pd.concat([Lengths_data,SpkLengths], axis=0)
         Duration_data = pd.concat([Duration_data,TrackTime], axis=0)
 
@@ -392,7 +395,7 @@ def LengthBatch(Images):
 
 
 def PixelHist(bw, ColorSpace, channel = 0, spikes="All", nbins = 100):
-    
+
     # Higher number of bins inreases computational power
 
     labeled_spks, num_spikes = label(bw, return_num = True)
@@ -568,7 +571,7 @@ def SpikesDF(I, ImagePath):
     # Create column with image name
     Image_Name = ImagePath.split('\\')[-1]
     Image_Name = [Image_Name] * num_spikes
-    
+
     # Geometric properties
     Labels = [rp.label for rp in props_spikes]
     Areas = [rp.area for rp in props_spikes]
@@ -641,14 +644,14 @@ def SpikesDF(I, ImagePath):
                'H_p25', 'H_p50', 'H_p75', 'H_Mean', 'H_sd', 'H_Min', 'H_Max',
                'S_p25', 'S_p50', 'S_p75', 'S_Mean', 'S_sd', 'S_Min', 'S_Max',
                'V_p25', 'V_p50', 'V_p75', 'V_Mean', 'V_sd', 'V_Min', 'V_Max'])
-    
+
     # Add Circularity and reorder df
     Spikes_per_image['Circularity'] = (4 * np.pi * Spikes_per_image['Area']) / (Spikes_per_image['Perimeter'] ** 2)
     # Reorder columns (geometric, then spectral)
     Cols = list(Spikes_per_image)
     Cols.insert(8, Cols.pop(Cols.index('Circularity')))
     Spikes_per_image = Spikes_per_image.loc[:, Cols]
-    
+
     # Output
     return Spikes_per_image
 
@@ -797,11 +800,11 @@ def LabelContours(cropped_rgb, thresh2, ResizeFactor=30, MinSize = 1000, plot=Tr
 
 
 def SpikeletsDF(labeled,Pad,cropped_rgb,cropped_lab,cropped_hsv,ImagePath):
-    
+
     # Was the image padded in spikelet_segm?
     if Pad!=None:
-        labeled = labeled[Pad:-Pad, Pad:-Pad]        
-        
+        labeled = labeled[Pad:-Pad, Pad:-Pad]
+
     # Label + regionprops
     labeled_contours, num_contours = label(labeled, return_num = True)
     props_contours = regionprops(labeled_contours)
@@ -888,7 +891,7 @@ def SpikeletsDF(labeled,Pad,cropped_rgb,cropped_lab,cropped_hsv,ImagePath):
     Cols = list(Objects_per_image)
     Cols.insert(8, Cols.pop(Cols.index('Circularity')))
     Objects_per_image = Objects_per_image.loc[:, Cols]
-    
+
     # Output
     return Objects_per_image
 
@@ -991,8 +994,8 @@ def spikelet_segm(cropped_rgb,Pad=200,MinDist=50,data_out=True,plot_ellipse=Fals
     labels = watershed(-distance, markers, mask=bw_spklts)
     labels2 = np.unique(labels[labels > 0])
     # spikes shouldn't have more than 50 spikelets
-    
-    
+
+
     if len(labels2) < 2 or len(labels2) > 50:
         print("Error! Check spike segmentation!")
         return
@@ -1013,7 +1016,7 @@ def spikelet_segm(cropped_rgb,Pad=200,MinDist=50,data_out=True,plot_ellipse=Fals
 
     # Export angles, areas, and centroids. Centroids are useful to estiamte distances between spikelets
     if data_out==True:
-        
+
         EllipsesIndex = []
         EllipsesAngle = []
         EllipsesLength = []
@@ -1054,7 +1057,7 @@ def spikelet_segm(cropped_rgb,Pad=200,MinDist=50,data_out=True,plot_ellipse=Fals
             ellipse_area = np.pi * d1 * d2
             ellipse_length = int(math.dist([int(xtop),int(ytop)],[int(xbot),int(ybot)]))
             EllipsesIndex.append(ellipse_ind)
-            EllipsesAngle.append(angle)  
+            EllipsesAngle.append(angle)
             EllipsesLength.append(ellipse_length)
             EllipsesArea.append(ellipse_area)
             EllipsesCentroid.append([int(xc),int(yc)])
@@ -1072,16 +1075,16 @@ def spikelet_segm(cropped_rgb,Pad=200,MinDist=50,data_out=True,plot_ellipse=Fals
                                  'Ellipse_Angle':EllipsesAngle,
                                  'Ellipse_Area':EllipsesArea,
                                      'Ellipse_Length':EllipsesLength,
-                                    'Ellipse_Centroid':EllipsesCentroid})        
+                                    'Ellipse_Centroid':EllipsesCentroid})
         if img_out==True:
             return(labels, EllipsesData, OutImage)
         else:
             return(labels, EllipsesData)
 
-    if plot_segmented==True and plot_ellipse==False:  
+    if plot_segmented==True and plot_ellipse==False:
         plt.imshow(labels, cmap=plt.cm.nipy_spectral)
         print('Detected spikelets = ', spikelets)
-    
+
 # # Example:
 # Spikelets, EllipseData, Spikelets_Image  = spikelet_segm(
 #     cropped_rgb=rgb0,Pad=200,MinDist=50,data_out=True,
@@ -1275,9 +1278,9 @@ def DistAll(EllipseData, HeatMap=True, HeatMapOut=False, spike_length=None):
 
     # Extract centroids from 'spikelet_segm' data
     c_points =list(EllipseData['Ellipse_Centroid'][:])
-    c_df = pd.DataFrame(c_points, columns=["x","y"], 
+    c_df = pd.DataFrame(c_points, columns=["x","y"],
                         index=EllipseData['Ellipse_Number'])
-    
+
     # https://stackoverflow.com/questions/57107729/how-to-compute-multiple-euclidean-distances-of-all-points-in-a-dataset
 
     # Points as tuples in a list
@@ -1302,7 +1305,7 @@ def DistAll(EllipseData, HeatMap=True, HeatMapOut=False, spike_length=None):
         D = D/spike_length
     else:
         D = D
-        
+
     D = pd.DataFrame(D, index = EllipseData['Ellipse_Number'],
                   columns = EllipseData['Ellipse_Number'])
     # Heatmap
@@ -1559,10 +1562,70 @@ def CollectTrainData(image_path, mask_path, ResizeFactor=8):
 # # About 13 sec per image/label
 
 
+def efd(cropped_spk, n_harmonics=30, plot_efd=True, efd_filename=None):
+
+    # Create dataframe
+    CoeffsPerSpike = pd.DataFrame()
+    EDF_cols = ['An','Bn','Cn','Dn']
+    EDF_nums = list(range(1,n_harmonics+1))
+    EDF_nums = [str(x) for x in EDF_nums]
+    Cols = np.char.add(EDF_cols,np.array(EDF_nums)[:,None])
+    Cols = Cols.reshape(1,4*n_harmonics)
+    Cols = Cols.tolist()
+    Cols = Cols[0]
+    # Find contours
+    bw_efd = np.pad(cropped_spk, pad_width=[(100, 100),(100, 100)], mode='constant')    # add pad
+    bw_efd = ndi.binary_fill_holes(bw_efd)     # fill holes
+    bw_efd = np.uint8(bw_efd)
+    contour, hierarchy = cv2.findContours(bw_efd,cv2.RETR_CCOMP,cv2.CHAIN_APPROX_SIMPLE)    # Contours
+    contour = np.squeeze(contour)
+    x = contour[:,0]
+    y = contour[:,1]
+    # First n coefficients
+    coeffs = spatial_efd.CalculateEFD(x,y,n_harmonics)
+    coeffs, rotation = spatial_efd.normalize_efd(coeffs, size_invariant=True)
+    coeffs = coeffs.reshape(1,4*n_harmonics)
+    # Min coefficients
+    # Nyquist Freqency: maximum number of harmonics that can be computed for a given contour
+    nyquist = spatial_efd.Nyquist(x)
+    tmpcoeffs = spatial_efd.CalculateEFD(x, y, nyquist+1)
+    harmonics = spatial_efd.FourierPower(tmpcoeffs, x)
+    # Populate dataframe
+    coeffs = pd.DataFrame(coeffs, columns=Cols)
+    # coeffs['Image_Name'] = Image_Name
+    # coeffs['Spike_Label'] = Label
+    coeffs['Min_Coeffs'] = harmonics
+    CoeffsPerSpike = pd.concat([CoeffsPerSpike,coeffs])
+
+    # Output
+    if plot_efd==True:
+        # size_invariant must be set to false if a normalized Fourier ellipse
+        # is to be plotted alongside the shapefile data
+        coeffs = spatial_efd.CalculateEFD(x,y,n_harmonics)
+        coeffs, rotation = spatial_efd.normalize_efd(coeffs, size_invariant=False)
 
 
+    if efd_filename != None:
+        efd_filename = efd_filename.replace('.tif','')
+        efd_filename = str(efd_filename + '_' + str(n_harmonics) + '.jpg')
+        ax = spatial_efd.InitPlot()
+        efd_img = spatial_efd.plotComparison(
+            ax, coeffs, n_harmonics, x, y, rotation=rotation,
+            color2 = 'black', width2 = 0.5,
+            color1 = 'red', width1 = 1)
+        plt.savefig(efd_filename, dpi=600)
+        plt.clf()
 
+        return CoeffsPerSpike
 
+    else:
+        ax = spatial_efd.InitPlot()
+        efd_img = spatial_efd.plotComparison(
+            ax, coeffs, n_harmonics, x, y, rotation=rotation,
+            color2 = 'black', width2 = 0.5,
+            color1 = 'red', width1 = 1)
 
+        return CoeffsPerSpike
 
-
+# Example:
+# efd_data = efd(bw0, n_harmonics=30, plot_efd=True, efd_filename=None)
