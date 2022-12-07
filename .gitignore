@@ -9,15 +9,15 @@ CVATLabeling/
 GIFS/
 Output/
 OldFiles/
-/Files/
+Files/*
 
 
 # Code
-.ipynb_checkpoints
+.ipynb_checkpoints/*
 
 
 # Files
 *.gsheet
-/ManuscriptExamples.ipynb
-/SpykPropsBatchExe.ipynb
+ManuscriptExamples.ipynb
+SpykPropsBatchExe.ipynb
 .DS_Store
