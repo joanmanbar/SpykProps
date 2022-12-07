@@ -18,6 +18,7 @@ cd SpykProps
 ### 3. Add the images folder to the `SpykProps` repository
 For example, if the folder is called 'MyImages', the structure for the current directory should look as follows:
 
+```bash
 SpykProps/
 |-- MyImages/
 |   |-- img_01.tif
@@ -29,6 +30,7 @@ SpykProps/
 |-- requirements.txt  
 |-- README.md
 |-- Overview.ipnb
+```
 
 ### 2. Install requirements
 ```
@@ -69,6 +71,7 @@ This line executes the `SpykBatch.py` taking `".\MyImages"` as directory; `0.5` 
 #### 3.3. Output
 If all the parameters are requested and satisfied, the output will be located within the given images' directory in a folder that includes the date and time of execution (YYMMDD_hhmm). Example:
 
+```bash
 SpykProps/
 |-- MyImages/
 |   |-- img_01.tif
@@ -84,7 +87,7 @@ SpykProps/
 |   |   |-- EucDistances_data.csv
 |-- ...
 |-- ...
-
+```
 
 ## Intructions for single spike/image analysis
 Please refer to the *Overview.ipynb* Jupyter notebook in the repository.
