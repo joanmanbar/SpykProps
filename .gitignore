@@ -1,4 +1,4 @@
-
+# Folders
 Images/
 CSSA/
 Testing/Excluded/
@@ -9,12 +9,11 @@ CVATLabeling/
 GIFS/
 Output/
 OldFiles/
-Files/*
+Files/
+.ipynb_checkpoints/
+__pycache__
 
-
-.ipynb_checkpoints/*
-
-
+# Files
 *.gsheet
 ManuscriptExamples.ipynb
 SpykPropsBatchExe.ipynb
