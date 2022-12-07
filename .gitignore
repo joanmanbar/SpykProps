@@ -1,4 +1,4 @@
-# Folders
+
 Images/
 CSSA/
 Testing/Excluded/
@@ -12,11 +12,9 @@ OldFiles/
 Files/*
 
 
-# Code
 .ipynb_checkpoints/*
 
 
-# Files
 *.gsheet
 ManuscriptExamples.ipynb
 SpykPropsBatchExe.ipynb
