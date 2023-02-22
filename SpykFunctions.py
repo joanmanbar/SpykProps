@@ -100,7 +100,7 @@ def spike_segm(img, rescale_rgb=None, channel_thresh=None, OtsuScaling=0.25,
     # Rescale
     if rescale_rgb != None:
         rescaled_rgb = rescale(img1[...], rescale_rgb, preserve_range=False,
-                       channel_axis=2, anti_aliasing=False)
+                       multichannel=True, anti_aliasing=False)
         rescaled_rgb = 255 * rescaled_rgb
         rescaled_rgb = rescaled_rgb.astype(np.uint8)
         img1 = rescaled_rgb
@@ -968,7 +968,7 @@ def spikelet_segm(cropped_rgb,Pad=200,MinDist=50,data_out=True,plot_ellipse=Fals
     # Add pad - improves segmentation
     padded_rgb = np.pad(cropped_rgb, pad_width=[(Pad, Pad),(Pad, Pad),(0, 0)], mode='constant')
     # Rescale to 10% of original
-    rescaled_spk = rescale(padded_rgb[...], 0.1, preserve_range=False, channel_axis=2, anti_aliasing=True)
+    rescaled_spk = rescale(padded_rgb[...], 0.1, preserve_range=False, multichannel=True, anti_aliasing=True)
     # Erosion
     kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
     erosion = cv2.erode(rescaled_spk,kernel,iterations = 1)
