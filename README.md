@@ -4,18 +4,18 @@
 ### Author:
 Joan Bareto Ortiz (jbarreto@umn.edu)
 
-This repository contains the Python code to collect spike (inflorescences) properties from images of perennial ryegrass. The code was written for images collected with a flatbed scanner at 600 dpi using a black velvet as background. Differences in image size, resolution, or background can affect the output of the analysis. Please refer to the Overview.ipynb file to use SpykProps on single images using Jupyter-lab, or follow the instructions below for *batch processing*.
+This repository contains the Python code to collect spike (inflorescences) properties from images of perennial ryegrass (_Lolium perenne_ L.). The code was written for images collected with a flatbed scanner at 600 dpi using a black velvet as background. Differences in image size, resolution, or background can affect the output of the analysis. Please refer to the Overview.ipynb file to use SpykProps on single images using Jupyter-lab, or follow the instructions below for *batch processing*.
 
 ## Instructions for batch processing
 These instructions
 
-### 1. Clone repository
+### 0. Clone repository
 ```
 git clone https://github.com/joanmanbar/SpykProps.git
 cd SpykProps
 ```
 
-### 3. Add the images folder to the `SpykProps` repository
+### 1. Add the images folder to the `SpykProps` repository
 For example, if the folder is called 'MyImages', the structure for the current directory should look as follows:
 
 ```bash
