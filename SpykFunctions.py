@@ -267,9 +267,13 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
 
 
     # Visualize overlay?
-    if Overlay == True and Method == 'skel_ma':
+    if Overlay == True:
+        try:
+            skel_plot = skeleton
+        except:
+            skel_plot = skeleton_ma
         # Dilate skeleton and color it
-        dil_skel = ndimage.binary_dilation(skeleton_ma, np.ones((7,7)))
+        dil_skel = ndimage.binary_dilation(skel_plot, np.ones((7,7)))
         rgb_skel = np.zeros((dil_skel.shape[0],dil_skel.shape[1],3), dtype=np.uint8)
         # Make True pixels red
         rgb_skel[dil_skel]  = [255,0,0]
@@ -290,11 +294,11 @@ def spk_length(cropped_spk,Method='skel_ma',Overlay=True):
     elif Overlay == False and Method == "all":
         Length_data = pd.DataFrame(Length_data).transpose()
         Length_data = Length_data.rename(
-            columns={0:'bbox',1:'chull',2:'skel_Lee',3:'skel'})
+            columns={0:'L_bbox',1:'L_chull',2:'L_skel_Zhang',3:'L_skel_ma'})
 
         Time_data = pd.DataFrame(Time_data).transpose()
         Time_data = Time_data.rename(
-            columns={0:'bbox',1:'chull',2:'skel_Lee',3:'skel'})
+            columns={0:'T_bbox',1:'T_chull',2:'T_skel_Zhang',3:'T_skel_ma'})
 
         return Length_data, Time_data
     else:

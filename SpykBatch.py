@@ -17,6 +17,7 @@ from skimage.measure import label
 import scipy.ndimage as ndi
 import numpy as np
 import cv2
+import signal
 
 
 # Parser
@@ -31,6 +32,8 @@ parser.add_argument('-spklt','--spikelet_data', type=bool, metavar='', default=T
 parser.add_argument('-dist','--distances_data', type=bool, metavar='', default=False, help='(bool) Return matrix of distances among spikelets')
 parser.add_argument('-efd','--Fourier_desc', type=bool, metavar='', default=False, help='(bool) Return Elliptical Fourier Descriptors (EFD) per spike.')
 parser.add_argument('-nh','--n_harmonics', type=int, metavar='', default=None, help='(int) Number of harmonics for EFD')
+parser.add_argument('-mt','--max_time', type=int, metavar='', default=20, help='(int) Maximum time (in seconds) to process a spike ')
+
 
 
 args = parser.parse_args()
@@ -90,13 +93,45 @@ else:
 
 MinDist = args.min_dist
 QC = args.quality_control
+spike_MPT = args.max_time
 
+
+
+# Alarm
+class TimeoutException(Exception):   # Custom exception class
+    pass
+
+def timeout_handler(signum, frame):   # Custom signal handler
+    raise TimeoutException
+# Change the behavior of SIGALRM
+signal.signal(signal.SIGALRM, timeout_handler)
 
 # Define output folders
-
 date_time_now = datetime.now().strftime("%y%m%d_%H%M")
 OutFolder = Images[0].rsplit('/', 1)[0]
 OutFolder = OutFolder + '/' + date_time_now
+Path(OutFolder).mkdir(parents=True, exist_ok=True)
+
+# Log file
+class Logger(object):
+    def __init__(self):
+        self.terminal = sys.stdout
+        logFilename = OutFolder + "/logfile.txt"
+        self.log = open(logFilename, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # this flush method is needed for python 3 compatibility.
+        # this handles the flush command by doing nothing.
+        # you might want to specify some extra behavior here.
+        pass
+
+sys.stdout = Logger()
+
+
 if QC == True:
     SpikeFolder = OutFolder + '/SpikeSegm/' # Spike segmentation
     Path(SpikeFolder).mkdir(parents=True, exist_ok=True)
@@ -108,7 +143,6 @@ if QC == True:
     Path(EFD_Folder).mkdir(parents=True, exist_ok=True)
     print('\n*********************************')
     print('\nCreated folder (date_time)',OutFolder)
-
 
 # Define function
 def SpykBatch():
@@ -122,7 +156,8 @@ def SpykBatch():
       "\n  Return spikelets dataset: ", str(spklt_df_rpint),
       "\n  Return spikelets Euclidean distances: ", str(dist_df_rpint),
       "\n  Return EFD dataset: ", str(efd_print),
-      "\n  Number of harmonics for EFD", str(nh_print),
+      "\n  Number of harmonics for EFD: ", str(nh_print),
+      "\n  Maximum time (in seconds) to process spikes: ", str(spike_MPT),
      "\n\n*********************************\n")
 
     print('Starting analysis...\n\n')
@@ -150,7 +185,7 @@ def SpykBatch():
             # Spike segmentation
             I = SF.spike_segm(img_name, rescale_rgb=rescale_rgb, channel_thresh=channel_thresh,
                            OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True,
-                           hsv_out=True, bw_out=True, crop_coord=[44,6940,25,4970])
+                           hsv_out=True, bw_out=True)
             rgb0 = I[0]
             gray0 = I[1]
             lab0 = I[2]
@@ -179,6 +214,8 @@ def SpykBatch():
 
             # Start at 1 so it ignores background (0)
             for Label in range(1, num_spikes+1):
+                # Set signal alarm for spike
+                signal.alarm(spike_MPT)
                 try:
                     now = datetime.now().strftime("%H:%M:%S")
                     print(now +  " ---- Processing spike ", Label)
@@ -245,6 +282,15 @@ def SpykBatch():
                     EFD_data = pd.concat([EFD_data,CoeffsPerSpike])
                     SpkltsPerSpk = pd.concat([SpkltsPerSpk,SpikeletProps])
 
+                except TimeoutException:
+                    SpkLengths.append(np.nan)
+                    print("Object couldn't be processed within the expected timeline. It may not be a spike.")
+                    Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
+                    Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
+                    Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
+                    EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
+                    pass
+
                 except Exception as e:
                     print('There was an error with this spike:')
                     Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
@@ -253,16 +299,15 @@ def SpykBatch():
                     EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
                     print(e)
                     pass
-
+                # Reset alarm
+                signal.alarm(0)
             # Spklts_data = Spklts_data.append(SpkltsPerSpk)
             Spklts_data = pd.concat([Spklts_data,SpkltsPerSpk])
-            # Distances_data = Distances_data.append(SpkDists)
 
             # Add spike lengths and append current data frame
             df["SpykLength"] = SpkLengths
             # Spikes_data = Spikes_data.append(df)
             Spikes_data = pd.concat([Spikes_data,df])
-
             # Create columns with image name, spike index, and distances matrix
             Image_Name = [Image_Name] * len(SpkDists)
             Spk_Index = [number for number in range(1, num_spikes+1)]
@@ -278,6 +323,7 @@ def SpykBatch():
             print("Image " + img_name.split('\\')[-1] + ", \n" + Progress + ", \nwas fully processed in " + str(round(time.time() - image_time, 1)) + " seconds. " + "\n")
 
         except Exception as e:
+
             print('there was an error!')
             Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
             Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
@@ -291,7 +337,7 @@ def SpykBatch():
             print(e)
             pass
 
-    # How long did it take to rusn the whole code?
+    # How long did it take to run the whole code?
     print("\n\nRun time: ",
           str(round(time.time() - start_time, 1)), "seconds",
           "\nProcessed Images: ", len(Images),
