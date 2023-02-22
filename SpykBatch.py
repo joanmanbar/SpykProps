@@ -4,6 +4,7 @@
 
 # imports
 import sys
+import os
 import argparse
 import time
 from datetime import datetime, date
@@ -41,7 +42,16 @@ args = parser.parse_args()
 
 
 # Define variables
-Images = SF.ListImages(args.img_directory, imgformat=args.img_format, recursive=False)
+InputPath = args.img_directory
+
+if os.path.isdir(InputPath):
+    Images = SF.ListImages(InputPath, imgformat=args.img_format, recursive=False)
+
+if os.path.isfile(InputPath):
+    Images = [InputPath]
+
+
+# Images = SF.ListImages(args.img_directory, imgformat=args.img_format, recursive=False)
 
 if args.rescale_rgb != None:
     rescale_rgb = args.rescale_rgb
@@ -95,7 +105,11 @@ MinDist = args.min_dist
 QC = args.quality_control
 spike_MPT = args.max_time
 
-
+# This is to ignore skimage's warning on multichannel vs channel_axis
+def warn(*args, **kwargs):
+    pass
+import warnings
+warnings.warn = warn
 
 # Alarm
 class TimeoutException(Exception):   # Custom exception class
