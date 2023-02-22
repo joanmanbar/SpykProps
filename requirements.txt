@@ -10,4 +10,4 @@ argparse==1.1
 spatial_efd==1.2.1
 daal==2021.2.3
 pyefd==1.6.0
-ß
+
