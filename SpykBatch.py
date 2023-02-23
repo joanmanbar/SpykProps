@@ -21,19 +21,18 @@ import cv2
 import signal
 
 # Parser
-parser = argparse.ArgumentParser(description='Run SpykProps on an a folder')
-parser.add_argument('-d','--img_directory', type=str, metavar='', required=True, help='Path to images folder or to single image')
-parser.add_argument('-f','--img_format', type=str, metavar='', default='.tif', help='(str) Images format')
-parser.add_argument('-r','--rescale_rgb', type=float, metavar='', default=None, help='(float) Rescale factor to resize original images')
-parser.add_argument('-ct','--channel_thresh', metavar='', help="(str) Channel and threshold values separated by a comma, respectively, for spike segmentation. Example: '-ct=0,30' threshold pixel values above 30 in channel 0.")
-parser.add_argument('-md','--min_dist', type=int, metavar='', default=50, help='(int) Minimum distance (in pixels) between spikelets. Suggested: 50 for original size; 40 for images rescaled at 0.75 or 0.5.')
-parser.add_argument('-spklt','--spikelet_data', type=str, metavar='', default=None, help='Return spikelet properties')
-parser.add_argument('-dist','--distances_data', type=str, metavar='',default=None, help='(bool) Return matrix of distances among spikelets')
-parser.add_argument('-efd','--Fourier_desc', type=str, metavar='', default=None, help='(bool) Return Elliptical Fourier Descriptors (EFD) per spike.')
-parser.add_argument('-nh','--n_harmonics', type=int, metavar='', default=None, help='(int) Number of harmonics for EFD')
-parser.add_argument('-mt','--max_time', type=int, metavar='', default=20, help='(int) Maximum time (in seconds) to process a spike ')
-parser.add_argument('-timg','--track_image', type=str, metavar='', default=None, help='(bool) Prints the processing time for each image')
-parser.add_argument('-tspk','--track_spike', type=str, metavar='', default=None, help='(bool) Prints name of tracked spike')
+parser = argparse.ArgumentParser(description='Run SpykProps on an a folder or image path')
+parser.add_argument('-d','--img_directory', type=str, required=True, help='Path to images folder or to single image')
+parser.add_argument('-f','--img_format', type=str, default='.tif', help='(str) Images format')
+parser.add_argument('-r','--rescale_rgb', type=float, default=None, help='(float) Rescale factor to resize original images')
+parser.add_argument('-ct','--channel_thresh', help="(str) Channel and threshold values separated by a comma, respectively, for spike segmentation. Example: '-ct=0,30' threshold pixel values above 30 in channel 0.")
+parser.add_argument('-md','--min_dist', type=int, default=50, help='(int) Minimum distance (in pixels) between spikelets. Suggested: 50 for original size; 40 for images rescaled at 0.75 or 0.5.')
+parser.add_argument('-spklt','--spikelet_data', action='store_true', help='Returns spikelet properties')
+parser.add_argument('-dist','--distances_data', action='store_true', help='Returns matrix of distances among spikelets')
+parser.add_argument('-efd','--Fourier_desc', action='store_true', help='Returns Elliptical Fourier Descriptors (EFD) per spike.')
+parser.add_argument('-nh','--n_harmonics', type=int, default=None, help='(int) Number of harmonics for EFD')
+parser.add_argument('-timg','--track_image', action='store_true', help='Prints processing time for each image')
+parser.add_argument('-tspk','--track_spike', action='store_true', help='Prints tracked spike')
 
 args = parser.parse_args()
 
@@ -86,18 +85,17 @@ else:
     n_harmonics = None
     nh_print = "None"
 
-if args.track_image == "True":
+if args.track_image != None:
     tck_img = True
 else:
     tck_img = False
 
-if args.track_spike == "True":
+if args.track_spike == True:
     tck_spk = True
 else:
     tck_spk = False
 
 MinDist = args.min_dist
-spike_MPT = args.max_time
 
 # This is to ignore skimage's warning on multichannel vs channel_axis
 def warn(*args, **kwargs):
@@ -127,7 +125,7 @@ print('\nCreated folder (date_time)',OutFolder)
 def SpykBatch():
 
     print("\n*********************************\n\nSettings: ",
-      "\n  Images' folder: ", args.img_directory,
+      "\n  Images' path: ", args.img_directory,
      "\n  Images's format: ", args.img_format,
      "\n  Rescale factor: ", resc_print,
      "\n  Method for spike segmentation: ", str(segm_print),
@@ -136,7 +134,6 @@ def SpykBatch():
       "\n  Return spikelets Euclidean distances: ", str(args.distances_data),
       "\n  Return EFD dataset: ", str(args.Fourier_desc),
       "\n  Number of harmonics for EFD: ", str(nh_print),
-      "\n  Maximum time (in seconds) to process spikes: ", str(spike_MPT),
       "\n  Tracking time to process image: ", str(args.track_image),
       "\n  Tracking spikes: ", str(args.track_spike),
      "\n\n*********************************\n")
