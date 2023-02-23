@@ -20,38 +20,29 @@ import numpy as np
 import cv2
 import signal
 
-
 # Parser
 parser = argparse.ArgumentParser(description='Run SpykProps on an a folder')
-parser.add_argument('-d','--img_directory', type=str, metavar='', required=True, help='Folder containing images to process')
+parser.add_argument('-d','--img_directory', type=str, metavar='', required=True, help='Path to images folder or to single image')
 parser.add_argument('-f','--img_format', type=str, metavar='', default='.tif', help='(str) Images format')
 parser.add_argument('-r','--rescale_rgb', type=float, metavar='', default=None, help='(float) Rescale factor to resize original images')
 parser.add_argument('-ct','--channel_thresh', metavar='', help="(str) Channel and threshold values separated by a comma, respectively, for spike segmentation. Example: '-ct=0,30' threshold pixel values above 30 in channel 0.")
 parser.add_argument('-md','--min_dist', type=int, metavar='', default=50, help='(int) Minimum distance (in pixels) between spikelets. Suggested: 50 for original size; 40 for images rescaled at 0.75 or 0.5.')
-parser.add_argument('-qc','--quality_control', type=bool, metavar='', default=True, help='(bool) Quality control. If True, creates folders with images of segmented spikes, segmented spikelets, and spike length detection.')
-parser.add_argument('-spklt','--spikelet_data', type=bool, metavar='', default=True, help='(bool) Return spikelet properties')
-parser.add_argument('-dist','--distances_data', type=bool, metavar='', default=False, help='(bool) Return matrix of distances among spikelets')
-parser.add_argument('-efd','--Fourier_desc', type=bool, metavar='', default=False, help='(bool) Return Elliptical Fourier Descriptors (EFD) per spike.')
+parser.add_argument('-spklt','--spikelet_data', type=str, metavar='', default=None, help='Return spikelet properties')
+parser.add_argument('-dist','--distances_data', type=str, metavar='',default=None, help='(bool) Return matrix of distances among spikelets')
+parser.add_argument('-efd','--Fourier_desc', type=str, metavar='', default=None, help='(bool) Return Elliptical Fourier Descriptors (EFD) per spike.')
 parser.add_argument('-nh','--n_harmonics', type=int, metavar='', default=None, help='(int) Number of harmonics for EFD')
 parser.add_argument('-mt','--max_time', type=int, metavar='', default=20, help='(int) Maximum time (in seconds) to process a spike ')
-
-
+parser.add_argument('-timg','--track_image', type=str, metavar='', default=None, help='(bool) Prints the processing time for each image')
+parser.add_argument('-tspk','--track_spike', type=str, metavar='', default=None, help='(bool) Prints name of tracked spike')
 
 args = parser.parse_args()
 
-
-
 # Define variables
 InputPath = args.img_directory
-
 if os.path.isdir(InputPath):
     Images = SF.ListImages(InputPath, imgformat=args.img_format, recursive=False)
-
 if os.path.isfile(InputPath):
     Images = [InputPath]
-
-
-# Images = SF.ListImages(args.img_directory, imgformat=args.img_format, recursive=False)
 
 if args.rescale_rgb != None:
     rescale_rgb = args.rescale_rgb
@@ -68,30 +59,24 @@ else:
     channel_thresh = None
     segm_print = "Otsu by 0.25"
 
-if args.spikelet_data == False:
-    SpikeletData = False
-    spklt_df_rpint = "False"
-else:
+if str(args.spikelet_data) == "True":
     SpikeletData = True
-    spklt_df_rpint = "True"
-
-if args.distances_data == False:
-    EucDist = False
-    dist_df_rpint = "False"
 else:
+    SpikeletData = False
+
+if str(args.distances_data) == "True":
     EucDist = True
-    dist_df_rpint = "True"
-
-if args.Fourier_desc == False:
-    EFD = False
-    efd_print = "False"
 else:
+    EucDist = False
+
+if str(args.Fourier_desc) == "True":
     EFD = True
-    efd_print = "True"
     import spatial_efd
     import pyefd
     from pyefd import elliptic_fourier_descriptors
     from pyefd import normalize_efd
+else:
+    EFD = False
 
 if args.n_harmonics != None:
     n_harmonics = args.n_harmonics
@@ -101,8 +86,17 @@ else:
     n_harmonics = None
     nh_print = "None"
 
+if str(args.track_image) == "True":
+    tck_img = True
+else:
+    tck_img = False
+
+if str(args.track_spike) == "True":
+    tck_spk = True
+else:
+    tck_spk = False
+
 MinDist = args.min_dist
-QC = args.quality_control
 spike_MPT = args.max_time
 
 # This is to ignore skimage's warning on multichannel vs channel_axis
@@ -126,37 +120,17 @@ OutFolder = Images[0].rsplit('/', 1)[0]
 OutFolder = OutFolder + '/' + date_time_now
 Path(OutFolder).mkdir(parents=True, exist_ok=True)
 
-# Log file
-class Logger(object):
-    def __init__(self):
-        self.terminal = sys.stdout
-        logFilename = OutFolder + "/logfile.txt"
-        self.log = open(logFilename, "a")
-
-    def write(self, message):
-        self.terminal.write(message)
-        self.log.write(message)
-
-    def flush(self):
-        # this flush method is needed for python 3 compatibility.
-        # this handles the flush command by doing nothing.
-        # you might want to specify some extra behavior here.
-        pass
-
-sys.stdout = Logger()
-
-
-if QC == True:
-    SpikeFolder = OutFolder + '/SpikeSegm/' # Spike segmentation
-    Path(SpikeFolder).mkdir(parents=True, exist_ok=True)
-    SpikeletFolder = OutFolder + '/SpikeletSegm/' # Spike segmentation
-    Path(SpikeletFolder).mkdir(parents=True, exist_ok=True)
-    LengthFolder = OutFolder + '/SpikeLength/' # Spike length approximation
-    Path(LengthFolder).mkdir(parents=True, exist_ok=True)
-    EFD_Folder = OutFolder + '/EFD/' # Spike length approximation
-    Path(EFD_Folder).mkdir(parents=True, exist_ok=True)
-    print('\n*********************************')
-    print('\nCreated folder (date_time)',OutFolder)
+# Create output folders
+SpikeFolder = OutFolder + '/SpikeSegm/' # Spike segmentation
+Path(SpikeFolder).mkdir(parents=True, exist_ok=True)
+SpikeletFolder = OutFolder + '/SpikeletSegm/' # Spike segmentation
+Path(SpikeletFolder).mkdir(parents=True, exist_ok=True)
+LengthFolder = OutFolder + '/SpikeLength/' # Spike length approximation
+Path(LengthFolder).mkdir(parents=True, exist_ok=True)
+EFD_Folder = OutFolder + '/EFD/' # Spike length approximation
+Path(EFD_Folder).mkdir(parents=True, exist_ok=True)
+print('\n*********************************')
+print('\nCreated folder (date_time)',OutFolder)
 
 # Define function
 def SpykBatch():
@@ -167,11 +141,13 @@ def SpykBatch():
      "\n  Rescale factor: ", resc_print,
      "\n  Method for spike segmentation: ", str(segm_print),
      "\n  Spikelets minimum distance: ", str(MinDist),
-      "\n  Return spikelets dataset: ", str(spklt_df_rpint),
-      "\n  Return spikelets Euclidean distances: ", str(dist_df_rpint),
-      "\n  Return EFD dataset: ", str(efd_print),
+      "\n  Return spikelets dataset: ", str(args.spikelet_data),
+      "\n  Return spikelets Euclidean distances: ", str(args.distances_data),
+      "\n  Return EFD dataset: ", str(args.Fourier_desc),
       "\n  Number of harmonics for EFD: ", str(nh_print),
       "\n  Maximum time (in seconds) to process spikes: ", str(spike_MPT),
+      "\n  Tracking time to process image: ", str(args.track_image),
+      "\n  Tracking spikes: ", str(args.track_spike),
      "\n\n*********************************\n")
 
     print('Starting analysis...\n\n')
@@ -188,31 +164,26 @@ def SpykBatch():
         try:
             Image_Name = img_name.split('/')[-1]
             Counter = Counter+1
-            Progress = str(Counter) + "/" + Nimages
-            # img_name=Images[0]
-            now = datetime.now().strftime("%H:%M:%S")
-            print(now + " -- Processing image " + Progress + ": \n", img_name)
-            # img_name = Images[9]
-            # Set the initial time per image
-            image_time = time.time()
+
+            if tck_img == True:
+                now = datetime.now().strftime("%H:%M:%S")
+                Progress = str(Counter) + "/" + Nimages
+                print(now + " -- Processing image " + Progress + ": \n", img_name)
+                # Set the initial time per image
+                image_time = time.time()
 
             # Spike segmentation
             I = SF.spike_segm(img_name, rescale_rgb=rescale_rgb, channel_thresh=channel_thresh,
                            OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True,
                            hsv_out=True, bw_out=True)
-            rgb0 = I[0]
-            gray0 = I[1]
-            lab0 = I[2]
-            hsv0 = I[3]
-            bw0 = I[4]
+            rgb0=I[0]; gray0=I[1]; lab0=I[2]; hsv0=I[3]; bw0 = I[4]
 
             # Enumerate spikes (to check spike segmentation)
-            if QC == True:
-                Enum_spike = SF.EnumerateSpkCV(bw=bw0, rgb=rgb0, TextSize=None,
-                                          Plot=False, PlotOut=True)
-                Filename = SpikeFolder + Image_Name.replace('.tif','.jpg')
-                im = Image.fromarray(Enum_spike)
-                im.save(Filename)
+            Enum_spike = SF.EnumerateSpkCV(bw=bw0, rgb=rgb0, TextSize=None,
+                                      Plot=False, PlotOut=True)
+            Filename = SpikeFolder + Image_Name.replace('.tif','.jpg')
+            im = Image.fromarray(Enum_spike)
+            im.save(Filename)
 
             # Collect spikes data (doesn't include spike length)
             df = SF.SpikesDF(I=I, ImagePath=img_name)
@@ -231,9 +202,10 @@ def SpykBatch():
                 # Set signal alarm for spike
                 signal.alarm(spike_MPT)
                 try:
-                    now = datetime.now().strftime("%H:%M:%S")
-                    print(now +  " ---- Processing spike ", Label)
                     spk = labeled_spks==Label
+                    if args.track_spike == True:
+                        now = datetime.now().strftime("%H:%M:%S")
+                        print(now +  " ---- Processing spike ", Label)
                     # Crop spike
                     slice_x, slice_y = ndi.find_objects(spk)[0]
                     cropped_spk = spk[slice_x, slice_y]
@@ -244,30 +216,21 @@ def SpykBatch():
                     cropped_hsv = color.rgb2hsv(cropped_rgb)
 
                     # Spike length
-                    if QC == True:
-                        sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
-                        SpkLengths.append(sl)
-                        Filename = LengthFolder + Image_Name.replace('.tif','.jpg')
-                        Filename = Filename + '_spk_'+ str(Label) + '.jpg'
-                        length_img.save(Filename)
-
-                    else:
-                        sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
-                        SpkLengths.append(sl)
+                    sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
+                    SpkLengths.append(sl)
+                    Filename = LengthFolder + Image_Name.replace('.tif','.jpg')
+                    Filename = Filename + '_spk_'+ str(Label) + '.jpg'
+                    length_img.save(Filename)
 
                     # Spikelet segmentation
-                    if QC == True:
-                        Spikelets,EllipseData,Spikelets_Image = SF.spikelet_segm(
-                            cropped_rgb=cropped_rgb,Pad=200,MinDist=MinDist,data_out=True,
-                            plot_ellipse=True,Numbered=True,img_out=True,plot_segmented=False)
-                        Filename = SpikeletFolder + Image_Name.replace('.tif','')
-                        Filename = Filename + '_'+ str(Label) + '.jpg'
-                        im = Image.fromarray(Spikelets_Image)
-                        im.save(Filename)
-                    else:
-                        Spikelets,EllipseData = SF.spikelet_segm(
-                            cropped_rgb=cropped_rgb,Pad=200,MinDist=MinDist,data_out=True,
-                            plot_ellipse=False,Numbered=False,img_out=False,plot_segmented=False)
+
+                    Spikelets,EllipseData,Spikelets_Image = SF.spikelet_segm(
+                        cropped_rgb=cropped_rgb,Pad=200,MinDist=MinDist,data_out=True,
+                        plot_ellipse=True,Numbered=True,img_out=True,plot_segmented=False)
+                    Filename = SpikeletFolder + Image_Name.replace('.tif','')
+                    Filename = Filename + '_'+ str(Label) + '.jpg'
+                    im = Image.fromarray(Spikelets_Image)
+                    im.save(Filename)
 
                     if SpikeletData==True:
                         SpikeletProps = SF.SpikeletsDF(labeled=Spikelets,Pad=200,cropped_rgb=cropped_rgb,
@@ -306,7 +269,7 @@ def SpykBatch():
                     pass
 
                 except Exception as e:
-                    print('There was an error with this spike:')
+                    print('There was an error with spike:', Label)
                     Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
                     Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
                     Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
@@ -334,11 +297,13 @@ def SpykBatch():
                 Distances_data = pd.concat([Distances_data,DistMat])
 
             # How long did it take to run this image?
-            print("Image " + img_name.split('\\')[-1] + ", \n" + Progress + ", \nwas fully processed in " + str(round(time.time() - image_time, 1)) + " seconds. " + "\n")
+            if tck_img == True:
+                print("Image " + img_name.split('\\')[-1] + ", \n" + Progress + ", \nwas fully processed in " + str(round(time.time() - image_time, 1)) + " seconds. " + "\n")
 
         except Exception as e:
 
             print('there was an error!')
+            print(e)
             Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
             Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
             Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
@@ -348,7 +313,6 @@ def SpykBatch():
                   str(round(time.time() - start_time, 1)), "seconds",
                   " \nProcessed spikes: ", len(Spikes_data),
                   "\nAll data was saved in \n", OutFolder)
-            print(e)
             pass
 
     # How long did it take to run the whole code?
