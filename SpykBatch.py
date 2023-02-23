@@ -86,12 +86,12 @@ else:
     n_harmonics = None
     nh_print = "None"
 
-if str(args.track_image) == "True":
+if args.track_image == "True":
     tck_img = True
 else:
     tck_img = False
 
-if str(args.track_spike) == "True":
+if args.track_spike == "True":
     tck_spk = True
 else:
     tck_spk = False
@@ -104,15 +104,6 @@ def warn(*args, **kwargs):
     pass
 import warnings
 warnings.warn = warn
-
-# Alarm
-class TimeoutException(Exception):   # Custom exception class
-    pass
-
-def timeout_handler(signum, frame):   # Custom signal handler
-    raise TimeoutException
-# Change the behavior of SIGALRM
-signal.signal(signal.SIGALRM, timeout_handler)
 
 # Define output folders
 date_time_now = datetime.now().strftime("%y%m%d_%H%M")
@@ -188,41 +179,59 @@ def SpykBatch():
             # Collect spikes data (doesn't include spike length)
             df = SF.SpikesDF(I=I, ImagePath=img_name)
 
+            if EucDist == True:
+                # Matrix of distances among detected spikelets
+                DistMat = pd.DataFrame(list(zip(Image_Name_List, Spk_Index, SpkDists)), columns = ['Image_Name', 'Spike_Label', 'MatrixD'])
+                # Append
+                # Distances_data = Distances_data.append(DistMat)
+                Distances_data = pd.concat([Distances_data,DistMat])
+
             # Label spikes
             labeled_spks, num_spikes = label(bw0, return_num = True)
 
             # Prepare empty lists and DFs
             SpkLengths = []    # Spike lengths
             SpkDists = []    # spikelet distances
-            SpkltsPerSpk = pd.DataFrame()    # Spikelets data
             DistancesPerSpk = pd.DataFrame()    # Spikelet distances data
+            SpkltsPerSpk = pd.DataFrame()    # Spikelets data
 
             # Start at 1 so it ignores background (0)
             for Label in range(1, num_spikes+1):
-                # Set signal alarm for spike
-                signal.alarm(spike_MPT)
+
+                spk = labeled_spks==Label
+                if tck_spk == True:
+                    now = datetime.now().strftime("%H:%M:%S")
+                    print(now +  " ---- Processing spike ", Label)
+                # Crop spike
+                slice_x, slice_y = ndi.find_objects(spk)[0]
+                cropped_spk = spk[slice_x, slice_y]
+                cropped_rgb = rgb0[slice_x, slice_y]
+                cropped_rgb = np.where(cropped_spk[..., None], cropped_rgb, 0)
+                cropped_gray = color.rgb2gray(cropped_rgb)
+                cropped_lab = color.rgb2lab(cropped_rgb)
+                cropped_hsv = color.rgb2hsv(cropped_rgb)
+
+                # Spike length
+                sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
+                SpkLengths.append(sl)
+                Filename = LengthFolder + Image_Name.replace('.tif','.jpg')
+                Filename = Filename + '_spk_'+ str(Label) + '.jpg'
+                length_img.save(Filename)
+
+                # EFD
+                if EFD == True:
+                    CoeffsPerSpike = pd.DataFrame()
+                    Filename = EFD_Folder + Image_Name.replace('.tif','')
+                    Filename = Filename + '_'+ str(Label)
+                    coeff_df = SF.efd(cropped_spk, n_harmonics=30, plot_efd=True, efd_filename=Filename)
+                    coeff_df['Image_Name'] = Image_Name
+                    coeff_df['Spike_Label'] = Label
+                    # coeffs['Min_Coeffs'] = harmonics
+                    CoeffsPerSpike = pd.concat([CoeffsPerSpike,coeff_df])
+                EFD_data = pd.concat([EFD_data,CoeffsPerSpike])
+
+                # Spikelet segmentation
                 try:
-                    spk = labeled_spks==Label
-                    if args.track_spike == True:
-                        now = datetime.now().strftime("%H:%M:%S")
-                        print(now +  " ---- Processing spike ", Label)
-                    # Crop spike
-                    slice_x, slice_y = ndi.find_objects(spk)[0]
-                    cropped_spk = spk[slice_x, slice_y]
-                    cropped_rgb = rgb0[slice_x, slice_y]
-                    cropped_rgb = np.where(cropped_spk[..., None], cropped_rgb, 0)
-                    cropped_gray = color.rgb2gray(cropped_rgb)
-                    cropped_lab = color.rgb2lab(cropped_rgb)
-                    cropped_hsv = color.rgb2hsv(cropped_rgb)
-
-                    # Spike length
-                    sl, length_img = SF.spk_length(cropped_spk, Method='skel_ma',Overlay=True)
-                    SpkLengths.append(sl)
-                    Filename = LengthFolder + Image_Name.replace('.tif','.jpg')
-                    Filename = Filename + '_spk_'+ str(Label) + '.jpg'
-                    length_img.save(Filename)
-
-                    # Spikelet segmentation
 
                     Spikelets,EllipseData,Spikelets_Image = SF.spikelet_segm(
                         cropped_rgb=cropped_rgb,Pad=200,MinDist=MinDist,data_out=True,
@@ -238,63 +247,27 @@ def SpykBatch():
                                            ImagePath=img_name)
                         SpikeletProps = pd.concat([EllipseData,SpikeletProps], axis=1)
 
-                    # Distances between spikelets (ellipses' centroids)
-                    if EucDist == True:
-                        D = SF.DistAll(EllipseData=EllipseData, HeatMap=False, spike_length=sl)
-                        SpkDists.append(D)
-
-                    if EFD == True:
-                        CoeffsPerSpike = pd.DataFrame()
-                        Filename = EFD_Folder + Image_Name.replace('.tif','')
-                        Filename = Filename + '_'+ str(Label)
-                        coeff_df = SF.efd(cropped_spk, n_harmonics=30, plot_efd=True, efd_filename=Filename)
-                        coeff_df['Image_Name'] = Image_Name
-                        coeff_df['Spike_Label'] = Label
-                        # coeffs['Min_Coeffs'] = harmonics
-                        CoeffsPerSpike = pd.concat([CoeffsPerSpike,coeff_df])
-
                     # Add spike label
                     SpikeletProps['Spike_Label'] = [str(Label)] * len(SpikeletProps)
 
-                    EFD_data = pd.concat([EFD_data,CoeffsPerSpike])
                     SpkltsPerSpk = pd.concat([SpkltsPerSpk,SpikeletProps])
 
-                except TimeoutException:
-                    SpkLengths.append(np.nan)
-                    print("Object couldn't be processed within the expected timeline. It may not be a spike.")
-                    Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
-                    Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
-                    Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
-                    EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
-                    pass
-
                 except Exception as e:
-                    print('There was an error with spike:', Label)
-                    Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
-                    Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
-                    Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
-                    EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
+                    print('Error processing spike:', Label)
                     print(e)
                     pass
-                # Reset alarm
-                signal.alarm(0)
+
             # Spklts_data = Spklts_data.append(SpkltsPerSpk)
-            Spklts_data = pd.concat([Spklts_data,SpkltsPerSpk])
+            if SpkltsPerSpk.empty == False:
+                Spklts_data = pd.concat([Spklts_data,SpkltsPerSpk])
 
             # Add spike lengths and append current data frame
             df["SpykLength"] = SpkLengths
             # Spikes_data = Spikes_data.append(df)
             Spikes_data = pd.concat([Spikes_data,df])
             # Create columns with image name, spike index, and distances matrix
-            Image_Name = [Image_Name] * len(SpkDists)
+            Image_Name_List = [Image_Name] * len(SpkDists)
             Spk_Index = [number for number in range(1, num_spikes+1)]
-
-            if EucDist == True:
-                # Matrix of distances among detected spikelets
-                DistMat = pd.DataFrame(list(zip(Image_Name, Spk_Index, SpkDists)), columns = ['Image_Name', 'Spike_Label', 'MatrixD'])
-                # Append
-                # Distances_data = Distances_data.append(DistMat)
-                Distances_data = pd.concat([Distances_data,DistMat])
 
             # How long did it take to run this image?
             if tck_img == True:
@@ -302,17 +275,8 @@ def SpykBatch():
 
         except Exception as e:
 
-            print('there was an error!')
+            print('Error processing image: ', img_name)
             print(e)
-            Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
-            Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
-            Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
-            EFD_data.to_csv(OutFolder + "/EFD_data.csv", index=False)
-            # Save current progress
-            print("\n\nRun time: ",
-                  str(round(time.time() - start_time, 1)), "seconds",
-                  " \nProcessed spikes: ", len(Spikes_data),
-                  "\nAll data was saved in \n", OutFolder)
             pass
 
     # How long did it take to run the whole code?
@@ -323,7 +287,7 @@ def SpykBatch():
           "\nAll data was saved in \n", OutFolder
          )
 
-    # Reorder columns (geometric, then spectral)
+    # Need to reorder columns (geometric, then spectral)
     Spikes_data.to_csv(OutFolder + "/Spikes_data.csv", index=False)
     Spklts_data.to_csv(OutFolder + "/Spikelets_data.csv", index=False)
     Distances_data.to_csv(OutFolder + "/EucDistances_data.csv", index=False)
