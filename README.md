@@ -60,14 +60,17 @@ python SpykBatch.py -h
 - `--Fourier_desc` (`-efd`): a boolean asking if user wants a dataset with elliptical Fourier coefficients per spikes (`default=True`).
 - `--n_harmonics` (`-nh`): an integer indicating the number of harmonics for the elliptical Fourier coefficients (`default=None`).
 - `--track_image`  (`-timg`): Prints processing time for each image.
-- `--track_spike` (`-tspk):   Prints tracked spike.
+- `--track_spike` (`-tspk`):   Prints tracked spike.
+- `--crop_coords` (`-cc`): a string with cropping coordinates for original RGB images. Must be separated by a comma, with the range for the Y axis (row numbers) being the first two values, and the following represent the the X axis (column numbers). Example: '-cc=44,6940,25,4970' takes only pixels from 44 to 6940 on the vertical axis, and 25 to 4970 on the horizontal axis.")
+
 
 #### 3.2. Example
 ```
-python SpykBatch.py -d "./MyImages" -f ".tif" -r 0.5 -ct 0,30 -md 50 -spklt -efd -nh 30 -timg -tspk
+python SpykBatch.py -d "./MyImages" -f ".tif" -r 0.5 -ct 0,30 -md 50 -spklt -efd -nh 30 -timg -tspk -cc=44,6940,25,4970
 ```
 
-This line executes the `SpykBatch.py` taking `"./MyImages"` as directory; `0.5` as rescale factor (i.e., resizes the image by 0.5 in each side); the channel `0` (e.g. R in RGB, or B in BGR images) and keeps pixel values greater than `30`; and computes the Elliptical Fourier Descriptors (`-efd`) using `30` harmonics.
+This line executes the `SpykBatch.py` taking `"./MyImages"` as directory; once cropped, the original images are rescaled by `0.5` (i.e., resizes the image by 0.5 in each side); the channel `0` (e.g. R in RGB, or B in BGR images) and keeps pixel values greater than `30`; and computes the Elliptical Fourier Descriptors (`-efd`) using `30` harmonics. Both the console and `logfile.txt` file in the output folder will show the time to process each image and spike within image.
+
 
 #### 3.3. Output
 If all the parameters are requested and satisfied, the output will be located within the given images' directory in a folder that includes the date and time of execution (YYMMDD_hhmm). Example:
@@ -86,6 +89,7 @@ SpykProps/
 |   |   |-- Spikelets_data.csv
 |   |   |-- EFD_data.csv
 |   |   |-- EucDistances_data.csv
+|   |   |-- logfile.txt
 |-- ...
 |-- ...
 ```

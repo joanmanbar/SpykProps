@@ -33,6 +33,7 @@ parser.add_argument('-efd','--Fourier_desc', action='store_true', help='Returns 
 parser.add_argument('-nh','--n_harmonics', type=int, default=None, help='(int) Number of harmonics for EFD')
 parser.add_argument('-timg','--track_image', action='store_true', help='Prints processing time for each image')
 parser.add_argument('-tspk','--track_spike', action='store_true', help='Prints tracked spike')
+parser.add_argument('-cc','--crop_coords', help="(str) Cropping coordinates for original RGB images. Must be separated by a comma, with the range for the Y axis (row numbers) being the first two values, and the following represent the the X axis (column numbers). Example: '-cc=44,6940,25,4970' takes only pixels from 44 to 6940 on the vertical axis, and 25 to 4970 on the horizontal axis.")
 
 args = parser.parse_args()
 
@@ -57,6 +58,10 @@ if args.channel_thresh != None:
 else:
     channel_thresh = None
     segm_print = "Otsu by 0.25"
+
+if args.crop_coords != None:
+    cc = args.crop_coords.split(',')
+    cc = list(map(int, cc))
 
 if str(args.spikelet_data) == "True":
     SpikeletData = True
@@ -121,6 +126,26 @@ Path(EFD_Folder).mkdir(parents=True, exist_ok=True)
 print('\n*********************************')
 print('\nCreated folder (date_time)',OutFolder)
 
+# Log file
+class Logger(object):
+    def __init__(self):
+        self.terminal = sys.stdout
+        logFilename = OutFolder + "/logfile.txt"
+        self.log = open(logFilename, "a")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        # this flush method is needed for python 3 compatibility.
+        # this handles the flush command by doing nothing.
+        # you might want to specify some extra behavior here.
+        pass
+
+sys.stdout = Logger()
+
+
 # Define function
 def SpykBatch():
 
@@ -136,6 +161,7 @@ def SpykBatch():
       "\n  Number of harmonics for EFD: ", str(nh_print),
       "\n  Tracking time to process image: ", str(args.track_image),
       "\n  Tracking spikes: ", str(args.track_spike),
+      "\n  Crooping coordinates: ", str(cc),
      "\n\n*********************************\n")
 
     print('Starting analysis...\n\n')
@@ -163,7 +189,8 @@ def SpykBatch():
             # Spike segmentation
             I = SF.spike_segm(img_name, rescale_rgb=rescale_rgb, channel_thresh=channel_thresh,
                            OtsuScaling=0.25, rgb_out=True, gray_out=True, lab_out=True,
-                           hsv_out=True, bw_out=True)
+                           hsv_out=True, bw_out=True,
+                           crop_coord=cc)
             rgb0=I[0]; gray0=I[1]; lab0=I[2]; hsv0=I[3]; bw0 = I[4]
 
             # Enumerate spikes (to check spike segmentation)
@@ -244,10 +271,10 @@ def SpykBatch():
                                            ImagePath=img_name)
                         SpikeletProps = pd.concat([EllipseData,SpikeletProps], axis=1)
 
-                    # Add spike label
-                    SpikeletProps['Spike_Label'] = [str(Label)] * len(SpikeletProps)
+                        # Add spike label
+                        SpikeletProps['Spike_Label'] = [str(Label)] * len(SpikeletProps)
 
-                    SpkltsPerSpk = pd.concat([SpkltsPerSpk,SpikeletProps])
+                        SpkltsPerSpk = pd.concat([SpkltsPerSpk,SpikeletProps])
 
                 except Exception as e:
                     print('Error processing spike:', Label)
@@ -255,7 +282,7 @@ def SpykBatch():
                     pass
 
             # Spklts_data = Spklts_data.append(SpkltsPerSpk)
-            if SpkltsPerSpk.empty == False:
+            if SpikeletData==True and SpkltsPerSpk.empty == False:
                 Spklts_data = pd.concat([Spklts_data,SpkltsPerSpk])
 
             # Add spike lengths and append current data frame

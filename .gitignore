@@ -12,6 +12,7 @@ OldFiles/
 Files/
 .ipynb_checkpoints/
 __pycache__
+McKena/
 
 # Files
 *.gsheet
@@ -19,3 +20,4 @@ ManuscriptExamples.ipynb
 SpykPropsBatchExe.ipynb
 .DS_Store
 BashTest.sh
+McKena_v01.ipynb
